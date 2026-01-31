@@ -45,6 +45,7 @@ func CreateCapability(c *gin.Context) {
 	var req struct {
 		Code             string         `json:"code" binding:"required"`
 		Name             string         `json:"name" binding:"required"`
+		Type             string         `json:"type"`
 		Description      string         `json:"description"`
 		StandardParams   datatypes.JSON `json:"standard_params"`
 		StandardResponse datatypes.JSON `json:"standard_response"`
@@ -56,9 +57,14 @@ func CreateCapability(c *gin.Context) {
 		return
 	}
 
+	if req.Type == "" {
+		req.Type = model.CapabilityTypeImage
+	}
+
 	capability := &model.Capability{
 		Code:             req.Code,
 		Name:             req.Name,
+		Type:             req.Type,
 		Description:      req.Description,
 		StandardParams:   req.StandardParams,
 		StandardResponse: req.StandardResponse,
@@ -88,6 +94,7 @@ func UpdateCapability(c *gin.Context) {
 
 	var req struct {
 		Name             string         `json:"name"`
+		Type             string         `json:"type"`
 		Description      string         `json:"description"`
 		StandardParams   datatypes.JSON `json:"standard_params"`
 		StandardResponse datatypes.JSON `json:"standard_response"`
@@ -102,6 +109,9 @@ func UpdateCapability(c *gin.Context) {
 	updates := map[string]any{}
 	if req.Name != "" {
 		updates["name"] = req.Name
+	}
+	if req.Type != "" {
+		updates["type"] = req.Type
 	}
 	if req.Description != "" {
 		updates["description"] = req.Description
