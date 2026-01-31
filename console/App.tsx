@@ -10,6 +10,7 @@ import Tokens from './pages/Tokens';
 import Logs from './pages/Logs';
 import RequestLogs from './pages/RequestLogs';
 import ApiDocs from './pages/ApiDocs';
+import CapabilityPrices from './pages/CapabilityPrices';
 import { User, UserRole } from './types';
 import { login, register, logout, getCurrentUser } from './services/api';
 import {LogIn, UserPlus, ArrowLeft} from 'lucide-react';
@@ -231,6 +232,7 @@ const App: React.FC = () => {
           <Route path="/tokens" element={<Tokens />} />
             <Route path="/api-docs" element={<ApiDocs/>}/>
           <Route path="/logs" element={<Logs />} />
+          <Route path="/capability-prices" element={<CapabilityPrices />} />
 
           <Route path="*" element={<div className="text-center py-20 text-gray-400 font-medium italic">页面正在开发中</div>} />
         </Routes>

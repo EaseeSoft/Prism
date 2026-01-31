@@ -624,3 +624,21 @@ export const fetchRequestLogs = async (params?: RequestLogListParams): Promise<R
 export const fetchRequestLogDetail = async (id: number): Promise<ChannelRequestLog> => {
   return await request<ChannelRequestLog>(`/admin/request-logs/${id}`);
 };
+
+// 能力价格列表（用户可见）
+export interface CapabilityPrice {
+  code: string;
+  name: string;
+  type: string;
+  description: string;
+  prices: {
+    channel: string;
+    model: string;
+    price: number;
+    price_unit: string;
+  }[];
+}
+
+export const fetchCapabilityPrices = async (): Promise<CapabilityPrice[]> => {
+  return await request<CapabilityPrice[]>('/capability-prices');
+};

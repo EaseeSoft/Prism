@@ -46,6 +46,9 @@ func SetupRouter() *gin.Engine {
 		console.GET("/dashboard/stats", v1.DashboardStats)
 		console.GET("/tasks", v1.ListTasks)
 		console.GET("/tasks/:task_no", v1.GetTaskDetail)
+
+		// 能力价格列表（用户可见）
+		console.GET("/capability-prices", v1.ListCapabilityPrices)
 	}
 
 	// 管理员专用 API
