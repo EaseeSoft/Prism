@@ -1,0 +1,29 @@
+server:
+  port: 23523
+  jwt_secret: "your-secret-key-change-in-production"
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: 123456
+  dbname: prism
+
+redis:
+  addr: 127.0.0.1:6379
+  password: ""
+  db: 0
+
+storage:
+  type: tencent
+  tencent:
+    secret_id: ""
+    secret_key: ""
+    region: ""
+    bucket: ""
+    cdn: ""
+
+worker:
+  concurrency: 10
+  poll_interval: 5s
+  max_retry: 3

@@ -1,0 +1,9 @@
+
+{
+  "name": "棱镜",
+  "description": "一个全面的 AI 网关管理平台，用于管理 AI 渠道、模型映射、用户令牌，并提供用于测试 AI 模型的交互式演练场。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
