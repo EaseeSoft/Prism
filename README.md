@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="console/assert/logo.png" width="120" alt="Prism Logo" />
+  <img src="console/assets/logo.png" width="120" alt="Prism Logo" />
 </p>
 
 <h1 align="center">Prism - 棱镜</h1>

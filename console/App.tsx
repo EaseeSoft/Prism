@@ -14,6 +14,7 @@ import CapabilityPrices from './pages/CapabilityPrices';
 import { User, UserRole } from './types';
 import { login, register, logout, getCurrentUser } from './services/api';
 import {LogIn, UserPlus, ArrowLeft} from 'lucide-react';
+import logo from '@/assets/logo.png';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -125,7 +126,7 @@ const App: React.FC = () => {
             </button>
 
           <div className="flex flex-col items-center mb-8">
-            <img src="/assert/logo.png" alt="Prism" className="w-16 h-16 mb-4" />
+              <img src={logo} alt="Prism" className="w-16 h-16 mb-4"/>
               <h1 className="text-2xl font-bold text-gray-900">棱镜</h1>
             <p className="text-gray-500 mt-2">
               {authMode === 'login' ? '请登录您的账户' : '创建新账户'}

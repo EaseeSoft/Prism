@@ -4,6 +4,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { Menu, X, LogOut, ChevronRight, User as UserIcon } from 'lucide-react';
 import { ROUTES } from '../constants';
 import { User, UserRole } from '../types';
+import logo from '@/assets/logo.png';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -37,7 +38,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
       >
         <div className="h-16 flex items-center px-6 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <img src="/assert/logo.png" alt="Prism" className="w-8 h-8" />
+              <img src={logo} alt="Prism" className="w-8 h-8"/>
               {isSidebarOpen && <span className="font-bold text-xl tracking-tight text-gray-800">棱镜</span>}
           </div>
         </div>

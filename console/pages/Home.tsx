@@ -11,6 +11,7 @@ import {
     Github,
     Star
 } from 'lucide-react';
+import logo from '@/assets/logo.png';
 
 interface HomeProps {
     onLogin: () => void;
@@ -63,7 +64,7 @@ const Home: React.FC<HomeProps> = ({onLogin}) => {
             <header className="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-md z-50 border-b border-gray-100">
                 <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <img src="/assert/logo.png" alt="Prism" className="w-10 h-10" />
+                        <img src={logo} alt="Prism" className="w-10 h-10"/>
                         <span className="text-xl font-bold text-gray-900">棱镜</span>
                         <span className="text-sm text-gray-400 hidden sm:inline">Prism AI Gateway</span>
                     </div>
@@ -243,7 +244,7 @@ const Home: React.FC<HomeProps> = ({onLogin}) => {
                 <div className="max-w-6xl mx-auto">
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
                         <div className="flex items-center gap-3">
-                            <img src="/assert/logo.png" alt="Prism" className="w-10 h-10" />
+                            <img src={logo} alt="Prism" className="w-10 h-10"/>
                             <div>
                                 <div className="font-bold text-gray-900">棱镜 Prism</div>
                                 <div className="text-sm text-gray-500">轻量级 AI Gateway 平台</div>
