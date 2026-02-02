@@ -381,6 +381,7 @@ export const fetchCapabilities = async (): Promise<Capability[]> => {
   return data.map(c => ({
     code: c.code,
     name: c.name,
+    type: c.type || 'image',
     description: c.description || '',
     standardParams: c.standard_params || {},
     standardResponse: c.standard_response || {},
@@ -395,6 +396,7 @@ export const getCapability = async (code: string): Promise<Capability> => {
   return {
     code: c.code,
     name: c.name,
+    type: c.type || 'image',
     description: c.description || '',
     standardParams: c.standard_params || {},
     standardResponse: c.standard_response || {},
@@ -407,6 +409,7 @@ export const getCapability = async (code: string): Promise<Capability> => {
 export const createCapability = async (data: {
   code: string;
   name: string;
+  type?: 'image' | 'video' | 'chat' | 'other';
   description?: string;
   standard_params?: Record<string, any>;
   standard_response?: Record<string, any>;
@@ -418,6 +421,7 @@ export const createCapability = async (data: {
   return {
     code: c.code,
     name: c.name,
+    type: c.type || data.type || 'image',
     description: c.description || '',
     standardParams: c.standard_params || {},
     standardResponse: c.standard_response || {},
@@ -429,6 +433,7 @@ export const createCapability = async (data: {
 
 export const updateCapability = async (code: string, data: {
   name?: string;
+  type?: 'image' | 'video' | 'chat' | 'other';
   description?: string;
   standard_params?: Record<string, any>;
   standard_response?: Record<string, any>;
