@@ -178,3 +178,24 @@ export interface ChannelRequestLog {
   channel_type?: string;
   capability_name?: string;
 }
+
+// 令牌渠道优先级配置
+export interface TokenChannelPriority {
+  channelId: number;
+  channelName: string;
+  channelType: string;
+  priority: number;
+}
+
+export interface TokenCapabilityPriority {
+  capabilityCode: string;
+  capabilityName: string;
+  channels: TokenChannelPriority[];
+}
+
+// 能力可用渠道
+export interface CapabilityChannel {
+  id: number;
+  type: string;
+  name: string;
+}

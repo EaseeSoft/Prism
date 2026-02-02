@@ -41,6 +41,9 @@ func SetupRouter() *gin.Engine {
 		console.POST("/tokens", v1.CreateToken)
 		console.POST("/tokens/:id/recharge", v1.RechargeToken)
 		console.DELETE("/tokens/:id", v1.DeleteToken)
+		console.GET("/tokens/:id/channel-priorities", v1.GetTokenChannelPriorities)
+		console.PUT("/tokens/:id/channel-priorities", v1.SaveTokenChannelPriorities)
+		console.GET("/capability-channels", v1.GetCapabilityChannels)
 
 		// 仪表盘（根据角色展示不同数据）
 		console.GET("/dashboard/stats", v1.DashboardStats)

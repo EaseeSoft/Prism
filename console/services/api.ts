@@ -6,7 +6,9 @@ import {
     ApiToken,
     LogEntry,
     Capability,
-    ChannelCapability
+  ChannelCapability,
+  TokenCapabilityPriority,
+  CapabilityChannel
 } from '../types';
 
 const API_BASE = '/api';
@@ -228,7 +230,6 @@ export const createChannel = async (data: {
     config: {},
     status: ch.status,
     accountsCount: 0,
-    modelsCount: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -646,4 +647,42 @@ export interface CapabilityPrice {
 
 export const fetchCapabilityPrices = async (): Promise<CapabilityPrice[]> => {
   return await request<CapabilityPrice[]>('/capability-prices');
+};
+
+// 令牌渠道优先级配置 API
+export const fetchTokenChannelPriorities = async (tokenId: string): Promise<TokenCapabilityPriority[]> => {
+  const data = await request<any[]>(`/tokens/${tokenId}/channel-priorities`);
+  return data.map(item => ({
+    capabilityCode: item.capability_code,
+    capabilityName: item.capability_name,
+    channels: (item.channels || []).map((ch: any) => ({
+      channelId: ch.channel_id,
+      channelName: ch.channel_name,
+      channelType: ch.channel_type,
+      priority: ch.priority,
+    })),
+  }));
+};
+
+export const saveTokenChannelPriorities = async (
+    tokenId: string,
+    capabilityCode: string,
+    priorities: { channel_id: number; priority: number }[]
+): Promise<void> => {
+  await request(`/tokens/${tokenId}/channel-priorities`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      capability_code: capabilityCode,
+      channel_priorities: priorities,
+    }),
+  });
+};
+
+export const fetchCapabilityChannels = async (capabilityCode: string): Promise<CapabilityChannel[]> => {
+  const data = await request<any[]>(`/capability-channels?code=${encodeURIComponent(capabilityCode)}`);
+  return data.map(ch => ({
+    id: ch.id,
+    type: ch.type,
+    name: ch.name,
+  }));
 };

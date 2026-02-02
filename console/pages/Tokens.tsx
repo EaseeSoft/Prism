@@ -1,7 +1,29 @@
 import React, { useEffect, useState } from 'react';
-import {Key, Plus, Copy, Trash2, CheckCircle2, AlertCircle, X, Wallet, PlusCircle} from 'lucide-react';
-import {fetchTokens, createToken, deleteToken, rechargeToken} from '../services/api';
-import { ApiToken } from '../types';
+import {
+    Key,
+    Plus,
+    Copy,
+    Trash2,
+    CheckCircle2,
+    AlertCircle,
+    X,
+    Wallet,
+    PlusCircle,
+    Settings,
+    ChevronUp,
+    ChevronDown,
+    GripVertical
+} from 'lucide-react';
+import {
+    fetchTokens,
+    createToken,
+    deleteToken,
+    rechargeToken,
+    fetchTokenChannelPriorities,
+    saveTokenChannelPriorities,
+    fetchCapabilityChannels
+} from '../services/api';
+import {ApiToken, TokenCapabilityPriority, CapabilityChannel} from '../types';
 import { STATUS_COLORS, STATUS_LABELS } from '../constants';
 
 const Tokens: React.FC = () => {
@@ -20,6 +42,29 @@ const Tokens: React.FC = () => {
     const [rechargeTokenName, setRechargeTokenName] = useState<string>('');
     const [rechargeAmount, setRechargeAmount] = useState<string>('');
     const [isRecharging, setIsRecharging] = useState(false);
+
+    // 渠道优先级配置相关状态
+    const [showPriorityModal, setShowPriorityModal] = useState(false);
+    const [priorityToken, setPriorityToken] = useState<ApiToken | null>(null);
+    const [capabilityPriorities, setCapabilityPriorities] = useState<TokenCapabilityPriority[]>([]);
+    const [selectedCapability, setSelectedCapability] = useState<string>('');
+    const [availableChannels, setAvailableChannels] = useState<CapabilityChannel[]>([]);
+    const [configuredChannels, setConfiguredChannels] = useState<{
+        channelId: number;
+        channelName: string;
+        channelType: string;
+        priority: number
+    }[]>([]);
+    const [isPriorityLoading, setIsPriorityLoading] = useState(false);
+    const [isSavingPriority, setIsSavingPriority] = useState(false);
+
+    // toast 提示
+    const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    const showToast = (type: 'success' | 'error', message: string) => {
+        setToast({type, message});
+        setTimeout(() => setToast(null), 3000);
+    };
 
   const loadTokens = () => {
     setIsLoading(true);
@@ -95,6 +140,120 @@ const Tokens: React.FC = () => {
     setNewTokenKey('');
   };
 
+    // 打开渠道优先级配置弹窗
+    const openPriorityModal = async (token: ApiToken) => {
+        setPriorityToken(token);
+        setShowPriorityModal(true);
+        setIsPriorityLoading(true);
+        setSelectedCapability('');
+        setConfiguredChannels([]);
+        setAvailableChannels([]);
+
+        try {
+            const priorities = await fetchTokenChannelPriorities(token.id);
+            setCapabilityPriorities(priorities);
+            if (priorities.length > 0) {
+                setSelectedCapability(priorities[0].capabilityCode);
+                await loadCapabilityChannels(priorities[0].capabilityCode, priorities);
+            }
+        } catch (err: any) {
+            alert(err.message || '加载配置失败');
+        } finally {
+            setIsPriorityLoading(false);
+        }
+    };
+
+    // 加载能力的可用渠道
+    const loadCapabilityChannels = async (capabilityCode: string, priorities?: TokenCapabilityPriority[]) => {
+        const channels = await fetchCapabilityChannels(capabilityCode);
+        setAvailableChannels(channels);
+
+        // 获取已配置的渠道
+        const currentPriorities = priorities || capabilityPriorities;
+        const capPriority = currentPriorities.find(p => p.capabilityCode === capabilityCode);
+        if (capPriority && capPriority.channels.length > 0) {
+            setConfiguredChannels(capPriority.channels.map(ch => ({
+                channelId: ch.channelId,
+                channelName: ch.channelName,
+                channelType: ch.channelType,
+                priority: ch.priority,
+            })));
+        } else {
+            setConfiguredChannels([]);
+        }
+    };
+
+    // 切换能力
+    const handleCapabilityChange = async (capabilityCode: string) => {
+        setSelectedCapability(capabilityCode);
+        await loadCapabilityChannels(capabilityCode);
+    };
+
+    // 添加渠道到配置
+    const addChannelToPriority = (channel: CapabilityChannel) => {
+        if (configuredChannels.find(c => c.channelId === channel.id)) return;
+        const newPriority = configuredChannels.length + 1;
+        setConfiguredChannels([...configuredChannels, {
+            channelId: channel.id,
+            channelName: channel.name,
+            channelType: channel.type,
+            priority: newPriority,
+        }]);
+    };
+
+    // 从配置中移除渠道
+    const removeChannelFromPriority = (channelId: number) => {
+        const newChannels = configuredChannels
+            .filter(c => c.channelId !== channelId)
+            .map((c, idx) => ({...c, priority: idx + 1}));
+        setConfiguredChannels(newChannels);
+    };
+
+    // 上移渠道
+    const moveChannelUp = (index: number) => {
+        if (index <= 0) return;
+        const newChannels = [...configuredChannels];
+        [newChannels[index - 1], newChannels[index]] = [newChannels[index], newChannels[index - 1]];
+        setConfiguredChannels(newChannels.map((c, idx) => ({...c, priority: idx + 1})));
+    };
+
+    // 下移渠道
+    const moveChannelDown = (index: number) => {
+        if (index >= configuredChannels.length - 1) return;
+        const newChannels = [...configuredChannels];
+        [newChannels[index], newChannels[index + 1]] = [newChannels[index + 1], newChannels[index]];
+        setConfiguredChannels(newChannels.map((c, idx) => ({...c, priority: idx + 1})));
+    };
+
+    // 保存渠道优先级配置
+    const savePriorityConfig = async () => {
+        if (!priorityToken || !selectedCapability) return;
+        setIsSavingPriority(true);
+        try {
+            await saveTokenChannelPriorities(
+                priorityToken.id,
+                selectedCapability,
+                configuredChannels.map(c => ({channel_id: c.channelId, priority: c.priority}))
+            );
+            closePriorityModal();
+            showToast('success', '渠道优先级配置保存成功');
+        } catch (err: any) {
+            showToast('error', err.message || '保存失败');
+        } finally {
+            setIsSavingPriority(false);
+        }
+    };
+
+    // 关闭渠道优先级配置弹窗
+    const closePriorityModal = () => {
+        setShowPriorityModal(false);
+        setPriorityToken(null);
+        setCapabilityPriorities([]);
+        setSelectedCapability('');
+        setAvailableChannels([]);
+        setConfiguredChannels([]);
+    };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -161,6 +320,13 @@ const Tokens: React.FC = () => {
 
             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
+                  onClick={() => openPriorityModal(token)}
+                  className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg"
+                  title="配置渠道优先级"
+              >
+                  <Settings size={18}/>
+              </button>
+                <button
                   onClick={() => openRechargeModal(token)}
                   className="p-2 text-gray-400 hover:text-green-500 hover:bg-green-50 rounded-lg"
                   title="充值"
@@ -316,6 +482,188 @@ const Tokens: React.FC = () => {
           </div>
         </div>
       )}
+
+        {/* 渠道优先级配置弹窗 */}
+        {showPriorityModal && priorityToken && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl max-h-[80vh] flex flex-col">
+                    <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-900">配置渠道优先级</h3>
+                            <p className="text-sm text-gray-500 mt-1">{priorityToken.name}</p>
+                        </div>
+                        <button onClick={closePriorityModal} className="p-1 hover:bg-gray-100 rounded-lg">
+                            <X size={20} className="text-gray-400"/>
+                        </button>
+                    </div>
+
+                    {isPriorityLoading ? (
+                        <div className="flex-1 flex items-center justify-center p-12">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                        </div>
+                    ) : capabilityPriorities.length === 0 ? (
+                        <div className="flex-1 flex items-center justify-center p-12">
+                            <p className="text-gray-500">暂无可配置的能力</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-1 overflow-hidden">
+                            {/* 左侧能力列表 */}
+                            <div className="w-48 border-r border-gray-100 overflow-y-auto">
+                                {capabilityPriorities.map(cap => (
+                                    <button
+                                        key={cap.capabilityCode}
+                                        onClick={() => handleCapabilityChange(cap.capabilityCode)}
+                                        className={`w-full px-4 py-3 text-left text-sm transition-colors ${
+                                            selectedCapability === cap.capabilityCode
+                                                ? 'bg-indigo-50 text-indigo-700 font-medium border-r-2 border-indigo-600'
+                                                : 'text-gray-600 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        <div className="font-medium">{cap.capabilityName}</div>
+                                        <div className="text-[10px] text-gray-400 mt-0.5">
+                                            {cap.channels.length > 0 ? `${cap.channels.length} 个渠道` : '未配置'}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* 右侧渠道配置 */}
+                            <div className="flex-1 p-6 overflow-y-auto">
+                                {selectedCapability && (
+                                    <div className="space-y-4">
+                                        {/* 已配置的渠道 */}
+                                        <div>
+                                            <h4 className="text-sm font-medium text-gray-700 mb-3">已配置的渠道优先级</h4>
+                                            {configuredChannels.length === 0 ? (
+                                                <div
+                                                    className="p-4 bg-gray-50 rounded-xl text-center text-sm text-gray-500">
+                                                    未配置渠道，将使用系统默认策略
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    {configuredChannels.map((channel, index) => (
+                                                        <div
+                                                            key={channel.channelId}
+                                                            className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl group"
+                                                        >
+                                                            <GripVertical size={16} className="text-gray-300"/>
+                                                            <span
+                                                                className="w-6 h-6 flex items-center justify-center bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">
+                                                                {index + 1}
+                                                            </span>
+                                                            <div className="flex-1">
+                                                                <div
+                                                                    className="font-medium text-gray-900">{channel.channelName}</div>
+                                                                <div
+                                                                    className="text-[10px] text-gray-400">{channel.channelType}</div>
+                                                            </div>
+                                                            <div
+                                                                className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={() => moveChannelUp(index)}
+                                                                    disabled={index === 0}
+                                                                    className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
+                                                                    title="上移"
+                                                                >
+                                                                    <ChevronUp size={16} className="text-gray-500"/>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => moveChannelDown(index)}
+                                                                    disabled={index === configuredChannels.length - 1}
+                                                                    className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
+                                                                    title="下移"
+                                                                >
+                                                                    <ChevronDown size={16} className="text-gray-500"/>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => removeChannelFromPriority(channel.channelId)}
+                                                                    className="p-1 hover:bg-red-100 rounded text-red-500"
+                                                                    title="移除"
+                                                                >
+                                                                    <X size={16}/>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 可添加的渠道 */}
+                                        <div>
+                                            <h4 className="text-sm font-medium text-gray-700 mb-3">可用渠道</h4>
+                                            {availableChannels.filter(ch => !configuredChannels.find(c => c.channelId === ch.id)).length === 0 ? (
+                                                <div
+                                                    className="p-4 bg-gray-50 rounded-xl text-center text-sm text-gray-500">
+                                                    所有渠道已添加
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {availableChannels
+                                                        .filter(ch => !configuredChannels.find(c => c.channelId === ch.id))
+                                                        .map(channel => (
+                                                            <button
+                                                                key={channel.id}
+                                                                onClick={() => addChannelToPriority(channel)}
+                                                                className="px-3 py-2 bg-gray-100 hover:bg-indigo-100 rounded-lg text-sm transition-colors"
+                                                            >
+                                                                <span className="font-medium">{channel.name}</span>
+                                                                <span
+                                                                    className="text-gray-400 ml-1 text-[10px]">({channel.type})</span>
+                                                            </button>
+                                                        ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 p-6 border-t border-gray-100">
+                        <button
+                            onClick={closePriorityModal}
+                            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium"
+                        >
+                            取消
+                        </button>
+                        <button
+                            onClick={savePriorityConfig}
+                            disabled={isSavingPriority || !selectedCapability}
+                            className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {isSavingPriority ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            ) : (
+                                <CheckCircle2 size={16}/>
+                            )}
+                            保存配置
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Toast 提示 */}
+        {toast && (
+            <div className="fixed top-6 right-6 z-[100] animate-[slideIn_0.3s_ease-out]">
+                <div className={`flex items-center gap-3 px-5 py-3 rounded-xl shadow-lg border ${
+                    toast.type === 'success'
+                        ? 'bg-green-50 border-green-200 text-green-700'
+                        : 'bg-red-50 border-red-200 text-red-700'
+                }`}>
+                    {toast.type === 'success'
+                        ? <CheckCircle2 size={18} className="text-green-500"/>
+                        : <AlertCircle size={18} className="text-red-500"/>
+                    }
+                    <span className="text-sm font-medium">{toast.message}</span>
+                    <button onClick={() => setToast(null)} className="p-0.5 hover:bg-black/5 rounded">
+                        <X size={14}/>
+                    </button>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

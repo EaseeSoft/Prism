@@ -37,5 +37,6 @@ func AutoMigrate() error {
 		&ChannelCapability{},
 		&Task{},
 		&ChannelRequestLog{},
+		&TokenChannelPriority{},
 	)
 }

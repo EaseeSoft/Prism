@@ -48,24 +48,43 @@ type InvokeResponse struct {
 
 // Invoke 调用能力接口
 func (s *CapabilityService) Invoke(ctx context.Context, req *InvokeRequest) (*InvokeResponse, error) {
-	// 1. 查找渠道
 	var channel model.Channel
-	if err := model.DB().Where("type = ? AND status = ?", req.Channel, 1).First(&channel).Error; err != nil {
-		return nil, fmt.Errorf("channel not found: %s", req.Channel)
-	}
-
-	// 2. 查找渠道能力配置
 	var cc model.ChannelCapability
-	query := model.DB().Where("channel_id = ? AND capability_code = ? AND status = ?",
-		channel.ID, req.Capability, 1)
-	if req.Model != "" {
-		query = query.Where("model = ?", req.Model)
-	}
-	if err := query.First(&cc).Error; err != nil {
-		return nil, fmt.Errorf("capability not supported: %s/%s", req.Channel, req.Capability)
+	var account model.ChannelAccount
+
+	// 1. 查找渠道和能力配置
+	if req.Channel != "" {
+		// 指定了渠道，直接查找
+		if err := model.DB().Where("type = ? AND status = ?", req.Channel, 1).First(&channel).Error; err != nil {
+			return nil, fmt.Errorf("channel not found: %s", req.Channel)
+		}
+
+		query := model.DB().Where("channel_id = ? AND capability_code = ? AND status = ?",
+			channel.ID, req.Capability, 1)
+		if req.Model != "" {
+			query = query.Where("model = ?", req.Model)
+		}
+		if err := query.First(&cc).Error; err != nil {
+			return nil, fmt.Errorf("capability not supported: %s/%s", req.Channel, req.Capability)
+		}
+
+		// 选择账号
+		err := model.DB().Where("channel_id = ? AND status = 1", channel.ID).
+			Order("current_tasks ASC, weight DESC").
+			First(&account).Error
+		if err != nil {
+			return nil, fmt.Errorf("no available account for channel: %s", req.Channel)
+		}
+	} else {
+		// 未指定渠道，按优先级选择
+		var err error
+		channel, cc, account, err = s.selectChannelByPriority(req.TokenID, req.Capability, req.Model)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// 3. 如果配置了单价，检查余额并扣费
+	// 2. 如果配置了单价，检查余额并扣费
 	logger.Info("capability price check",
 		zap.String("capability", req.Capability),
 		zap.Float64("price", cc.Price))
@@ -77,19 +96,6 @@ func (s *CapabilityService) Invoke(ctx context.Context, req *InvokeRequest) (*In
 			return nil, fmt.Errorf("insufficient balance: %w", err)
 		}
 		charged = true
-	}
-
-	// 4. 选择账号
-	var account model.ChannelAccount
-	err := model.DB().Where("channel_id = ? AND status = 1", channel.ID).
-		Order("current_tasks ASC, weight DESC").
-		First(&account).Error
-	if err != nil {
-		// 扣费失败需要退回
-		if charged {
-			_ = billingService.Refund(req.TokenID, req.UserID, cc.Price)
-		}
-		return nil, fmt.Errorf("no available account")
 	}
 
 	// 增加账号任务数
@@ -631,4 +637,88 @@ func (s *CapabilityService) logRequest(task *model.Task, reqType model.RequestTy
 		log.ErrorMessage = detail.Error.Error()
 	}
 	NewRequestLogService().Log(log)
+}
+
+// selectChannelByPriority 按优先级选择渠道
+func (s *CapabilityService) selectChannelByPriority(tokenID uint, capabilityCode string, modelName string) (model.Channel, model.ChannelCapability, model.ChannelAccount, error) {
+	var channel model.Channel
+	var cc model.ChannelCapability
+	var account model.ChannelAccount
+
+	// 1. 查询该令牌该能力的优先级配置
+	var priorities []model.TokenChannelPriority
+	model.DB().Where("token_id = ? AND capability_code = ?", tokenID, capabilityCode).
+		Order("priority ASC").
+		Find(&priorities)
+
+	// 2. 如果有优先级配置，按优先级顺序查找可用渠道
+	if len(priorities) > 0 {
+		for _, p := range priorities {
+			// 检查渠道是否可用
+			var ch model.Channel
+			if err := model.DB().Where("id = ? AND status = 1", p.ChannelID).First(&ch).Error; err != nil {
+				continue
+			}
+
+			// 检查渠道能力配置是否可用
+			var capability model.ChannelCapability
+			query := model.DB().Where("channel_id = ? AND capability_code = ? AND status = 1", p.ChannelID, capabilityCode)
+			if modelName != "" {
+				query = query.Where("model = ?", modelName)
+			}
+			if err := query.First(&capability).Error; err != nil {
+				continue
+			}
+
+			// 检查是否有可用账号
+			var acc model.ChannelAccount
+			if err := model.DB().Where("channel_id = ? AND status = 1", p.ChannelID).
+				Order("current_tasks ASC, weight DESC").
+				First(&acc).Error; err != nil {
+				continue
+			}
+
+			// 找到可用渠道
+			logger.Info("selected channel by priority",
+				zap.Uint("token_id", tokenID),
+				zap.String("capability", capabilityCode),
+				zap.Uint("channel_id", p.ChannelID),
+				zap.Int("priority", p.Priority))
+
+			return ch, capability, acc, nil
+		}
+	}
+
+	// 3. 如果没有优先级配置或所有配置的渠道都不可用，使用默认策略
+	var channelCapabilities []model.ChannelCapability
+	query := model.DB().Where("capability_code = ? AND status = 1", capabilityCode)
+	if modelName != "" {
+		query = query.Where("model = ?", modelName)
+	}
+	query.Find(&channelCapabilities)
+
+	for _, capability := range channelCapabilities {
+		// 检查渠道是否可用
+		var ch model.Channel
+		if err := model.DB().Where("id = ? AND status = 1", capability.ChannelID).First(&ch).Error; err != nil {
+			continue
+		}
+
+		// 检查是否有可用账号
+		var acc model.ChannelAccount
+		if err := model.DB().Where("channel_id = ? AND status = 1", capability.ChannelID).
+			Order("current_tasks ASC, weight DESC").
+			First(&acc).Error; err != nil {
+			continue
+		}
+
+		logger.Info("selected channel by default",
+			zap.Uint("token_id", tokenID),
+			zap.String("capability", capabilityCode),
+			zap.Uint("channel_id", capability.ChannelID))
+
+		return ch, capability, acc, nil
+	}
+
+	return channel, cc, account, fmt.Errorf("no available channel for capability: %s", capabilityCode)
 }
