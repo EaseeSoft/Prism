@@ -57,10 +57,6 @@ func CreateCapability(c *gin.Context) {
 		return
 	}
 
-	if req.Type == "" {
-		req.Type = model.CapabilityTypeImage
-	}
-
 	capability := &model.Capability{
 		Code:             req.Code,
 		Name:             req.Name,
@@ -72,6 +68,9 @@ func CreateCapability(c *gin.Context) {
 	}
 	if capability.Status == 0 {
 		capability.Status = 1
+	}
+	if capability.Type == "" {
+		capability.Type = model.CapabilityTypeImage
 	}
 
 	if err := model.DB().Create(capability).Error; err != nil {
@@ -131,6 +130,8 @@ func UpdateCapability(c *gin.Context) {
 		return
 	}
 
+	// 重新查询返回最新数据
+	model.DB().Where("code = ?", code).First(&capability)
 	successResponse(c, capability)
 }
 

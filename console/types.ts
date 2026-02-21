@@ -94,6 +94,32 @@ export interface ApiToken {
     balance: number;
     totalUsed: number;
   status: 'active' | 'expired';
+  channelPriorities?: ChannelPriorityItem[];
+}
+
+// 渠道优先级配置项
+export interface ChannelPriorityItem {
+  capabilityCode: string;
+  channelId: number;
+  priority: number;
+}
+
+// 能力及其可用渠道
+export interface CapabilityWithChannels {
+  code: string;
+  name: string;
+  type: string;
+  description: string;
+  channels: ChannelOption[];
+}
+
+// 渠道选项
+export interface ChannelOption {
+  channelId: number;
+  channelType: string;
+  channelName: string;
+  model: string;
+  price: number;
 }
 
 export interface TaskLog {
@@ -179,23 +205,79 @@ export interface ChannelRequestLog {
   capability_name?: string;
 }
 
-// 令牌渠道优先级配置
-export interface TokenChannelPriority {
-  channelId: number;
-  channelName: string;
-  channelType: string;
-  priority: number;
-}
+// ========== Chat 模型相关 ==========
 
-export interface TokenCapabilityPriority {
-  capabilityCode: string;
-  capabilityName: string;
-  channels: TokenChannelPriority[];
-}
-
-// 能力可用渠道
-export interface CapabilityChannel {
+export interface ChatModel {
   id: number;
-  type: string;
+  code: string;
   name: string;
+  provider: string;
+  description: string;
+  status: number;
+  createdAt: string;
+  updatedAt: string;
 }
+
+export interface ChatModelChannel {
+  id: number;
+  modelCode: string;
+  channelId: number;
+  vendorModel: string;
+  priority: number;
+  priceMode: 'token' | 'request';
+  inputPrice: number;
+  outputPrice: number;
+  requestPath: string;
+  timeout: number;
+  extraHeaders: Record<string, string>;
+  extraConfig: Record<string, any>;
+  status: number;
+  createdAt: string;
+  updatedAt: string;
+  chatModel?: ChatModel;
+  channel?: Channel;
+}
+
+export interface Conversation {
+  id: number;
+  userId: number;
+  tokenId: number;
+  title: string;
+  model: string;
+  systemPrompt: string;
+  totalTokens: number;
+  messageCount: number;
+  totalCost: number;
+  status: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  conversationId: number;
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  latencyMs: number;
+  cost: number;
+  createdAt: string;
+}
+
+// Provider 类型
+export const CHAT_PROVIDERS = [
+  {value: 'openai', label: 'OpenAI'},
+  {value: 'anthropic', label: 'Anthropic (Claude)'},
+  {value: 'google', label: 'Google (Gemini)'},
+  {value: 'deepseek', label: 'DeepSeek'},
+  {value: 'qwen', label: '通义千问'},
+  {value: 'moonshot', label: 'Moonshot'},
+];
+
+// 计价模式
+export const PRICE_MODES = [
+  {value: 'token', label: '按 Token 计费'},
+  {value: 'request', label: '按次计费'},
+];

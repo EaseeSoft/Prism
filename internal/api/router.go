@@ -32,26 +32,35 @@ func SetupRouter() *gin.Engine {
 		auth.POST("/logout", v1.Logout)
 	}
 
+	// 公开接口 (无需登录)
+	public := r.Group("/api/public")
+	{
+		public.GET("/pricing", v1.GetPricing)
+	}
+
 	// 控制台 API (需要 JWT 认证)
 	console := r.Group("/api")
 	console.Use(middleware.JWTAuth())
 	{
 		console.GET("/user/me", v1.GetCurrentUser)
+		console.PUT("/user/password", v1.ChangePassword)
 		console.GET("/tokens", v1.ListMyTokens)
 		console.POST("/tokens", v1.CreateToken)
+		console.GET("/tokens/:id", v1.GetToken)
+		console.PUT("/tokens/:id", v1.UpdateToken)
 		console.POST("/tokens/:id/recharge", v1.RechargeToken)
 		console.DELETE("/tokens/:id", v1.DeleteToken)
-		console.GET("/tokens/:id/channel-priorities", v1.GetTokenChannelPriorities)
-		console.PUT("/tokens/:id/channel-priorities", v1.SaveTokenChannelPriorities)
-		console.GET("/capability-channels", v1.GetCapabilityChannels)
+		console.GET("/capability-channels", v1.ListCapabilityChannels)
+		console.GET("/chat-model-channels", v1.ListChatModelChannelsForToken)
 
 		// 仪表盘（根据角色展示不同数据）
 		console.GET("/dashboard/stats", v1.DashboardStats)
 		console.GET("/tasks", v1.ListTasks)
 		console.GET("/tasks/:task_no", v1.GetTaskDetail)
 
-		// 能力价格列表（用户可见）
-		console.GET("/capability-prices", v1.ListCapabilityPrices)
+		// 对话记录
+		console.GET("/conversations", v1.ListConversations)
+		console.GET("/conversations/:id/messages", v1.GetConversationMessages)
 	}
 
 	// 管理员专用 API
@@ -96,6 +105,21 @@ func SetupRouter() *gin.Engine {
 		// 渠道请求日志
 		admin.GET("/request-logs", v1.ListRequestLogs)
 		admin.GET("/request-logs/:id", v1.GetRequestLog)
+		admin.POST("/request-logs/:id/retry", v1.RetryRequest)
+
+		// Chat 模型管理
+		admin.GET("/chat-models", v1.ListChatModels)
+		admin.GET("/chat-models/:code", v1.GetChatModel)
+		admin.POST("/chat-models", v1.CreateChatModel)
+		admin.PUT("/chat-models/:code", v1.UpdateChatModel)
+		admin.DELETE("/chat-models/:code", v1.DeleteChatModel)
+
+		// Chat 模型渠道映射
+		admin.GET("/chat-model-channels", v1.ListChatModelChannels)
+		admin.GET("/chat-model-channels/:id", v1.GetChatModelChannel)
+		admin.POST("/chat-model-channels", v1.CreateChatModelChannel)
+		admin.PUT("/chat-model-channels/:id", v1.UpdateChatModelChannel)
+		admin.DELETE("/chat-model-channels/:id", v1.DeleteChatModelChannel)
 	}
 
 	// v1 API (Token 鉴权，用于 AI 调用)
@@ -116,6 +140,10 @@ func SetupRouter() *gin.Engine {
 		// 兼容旧接口
 		apiV1.POST("/images/generations", v1.CreateImageGeneration)
 		apiV1.POST("/videos/generations", v1.CreateVideoGeneration)
+
+		// Chat 接口
+		apiV1.POST("/chat/completions", v1.ChatCompletions)
+		apiV1.GET("/models", v1.ListChatModelsPublic)
 	}
 
 	// 内部接口 (上游回调)

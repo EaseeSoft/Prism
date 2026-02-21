@@ -108,3 +108,48 @@ func GetRequestLog(c *gin.Context) {
 
 	successResponse(c, result)
 }
+
+// RetryRequest 重试请求
+func RetryRequest(c *gin.Context) {
+	idStr := c.Param("id")
+	var id uint
+	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
+		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, "invalid id"))
+		return
+	}
+
+	newLog, err := requestLogService.RetryRequest(id)
+	if err != nil {
+		internalError(c, errors.ErrInternalError)
+		return
+	}
+
+	result := gin.H{
+		"id":              newLog.ID,
+		"task_id":         newLog.TaskID,
+		"task_no":         newLog.TaskNo,
+		"channel_id":      newLog.ChannelID,
+		"account_id":      newLog.AccountID,
+		"capability_code": newLog.CapabilityCode,
+		"request_type":    newLog.RequestType,
+		"method":          newLog.Method,
+		"url":             newLog.URL,
+		"request_headers": newLog.RequestHeaders,
+		"request_body":    newLog.RequestBody,
+		"status_code":     newLog.StatusCode,
+		"response_body":   newLog.ResponseBody,
+		"duration_ms":     newLog.DurationMs,
+		"error_message":   newLog.ErrorMessage,
+		"request_at":      newLog.RequestAt,
+		"created_at":      newLog.CreatedAt,
+	}
+	if newLog.Channel != nil {
+		result["channel_name"] = newLog.Channel.Name
+		result["channel_type"] = newLog.Channel.Type
+	}
+	if newLog.Capability != nil {
+		result["capability_name"] = newLog.Capability.Name
+	}
+
+	successResponse(c, result)
+}

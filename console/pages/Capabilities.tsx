@@ -36,8 +36,8 @@ const STANDARD_RESPONSE: Record<string, { name: string; type: string; enumValues
     task_id: {name: '任务ID', type: 'string'},
     status: {name: '状态', type: 'enum', enumValues: ['pending', 'processing', 'success', 'failed', 'cancelled']},
     progress: {name: '进度', type: 'number'},
-    image_url: {name: '图片URL', type: 'string'},
-    video_url: {name: '视频URL', type: 'string'},
+    url: {name: '结果URL', type: 'string'},
+    data: {name: '结果数据', type: 'string'},
     error: {name: '错误信息', type: 'string'},
 };
 
@@ -292,6 +292,28 @@ interface TypeConvert {
     separator: string;
 }
 
+// 成功条件配置
+interface SuccessCondition {
+    field: string;
+    operator: 'eq' | 'ne' | 'exists' | 'not_exists' | 'in' | 'not_in' | 'gt' | 'gte' | 'lt' | 'lte';
+    value?: string | number | boolean;
+    values?: (string | number)[];
+}
+
+// 成功条件操作符选项
+const SUCCESS_CONDITION_OPERATORS = [
+    {value: 'eq', label: '等于', needValue: true, needValues: false},
+    {value: 'ne', label: '不等于', needValue: true, needValues: false},
+    {value: 'exists', label: '存在', needValue: false, needValues: false},
+    {value: 'not_exists', label: '不存在', needValue: false, needValues: false},
+    {value: 'in', label: '在列表中', needValue: false, needValues: true},
+    {value: 'not_in', label: '不在列表中', needValue: false, needValues: true},
+    {value: 'gt', label: '大于', needValue: true, needValues: false},
+    {value: 'gte', label: '大于等于', needValue: true, needValues: false},
+    {value: 'lt', label: '小于', needValue: true, needValues: false},
+    {value: 'lte', label: '小于等于', needValue: true, needValues: false},
+];
+
 // 解析 JSON 映射为表单数据
 const parseParamMapping = (mapping: Record<string, any>) => {
     const fieldMappings: FieldMapping[] = [];
@@ -334,6 +356,7 @@ const parseResponseMapping = (mapping: Record<string, any>) => {
     const fieldMappings: FieldMapping[] = [];
     const valueMappings: ValueMapping[] = [];
     const typeConverts: TypeConvert[] = [];
+    let successCondition: SuccessCondition | null = null;
 
     if (mapping.field_mapping) {
         Object.entries(mapping.field_mapping).forEach(([std, vendor]) => {
@@ -357,8 +380,11 @@ const parseResponseMapping = (mapping: Record<string, any>) => {
             });
         });
     }
+    if (mapping.success_condition) {
+        successCondition = mapping.success_condition as SuccessCondition;
+    }
 
-    return {fieldMappings, valueMappings, typeConverts};
+    return {fieldMappings, valueMappings, typeConverts, successCondition};
 };
 
 // 构建 JSON 映射
@@ -404,7 +430,7 @@ const buildParamMapping = (fieldMappings: FieldMapping[], valueMappings: ValueMa
     return result;
 };
 
-const buildResponseMapping = (fieldMappings: FieldMapping[], valueMappings: ValueMapping[], typeConverts: TypeConvert[] = []) => {
+const buildResponseMapping = (fieldMappings: FieldMapping[], valueMappings: ValueMapping[], typeConverts: TypeConvert[] = [], successCondition: SuccessCondition | null = null) => {
     const result: Record<string, any> = {};
 
     const fieldMap: Record<string, string> = {};
@@ -431,6 +457,27 @@ const buildResponseMapping = (fieldMappings: FieldMapping[], valueMappings: Valu
         }
     });
     if (Object.keys(typeConvertMap).length > 0) result.type_convert = typeConvertMap;
+
+    // 成功条件
+    if (successCondition && successCondition.field && successCondition.operator) {
+        const cond: Record<string, any> = {
+            field: successCondition.field,
+            operator: successCondition.operator,
+        };
+        const opConfig = SUCCESS_CONDITION_OPERATORS.find(o => o.value === successCondition.operator);
+        if (opConfig?.needValue && successCondition.value !== undefined && successCondition.value !== '') {
+            // 尝试转换为数字
+            const numVal = Number(successCondition.value);
+            cond.value = isNaN(numVal) ? successCondition.value : numVal;
+        }
+        if (opConfig?.needValues && successCondition.values && successCondition.values.length > 0) {
+            cond.values = successCondition.values.map(v => {
+                const numVal = Number(v);
+                return isNaN(numVal) ? v : numVal;
+            });
+        }
+        result.success_condition = cond;
+    }
 
     return result;
 };
@@ -475,11 +522,13 @@ const ChannelCapabilityModal: React.FC<{
     const [respFieldMappings, setRespFieldMappings] = useState<FieldMapping[]>([]);
     const [respValueMappings, setRespValueMappings] = useState<ValueMapping[]>([]);
     const [respTypeConverts, setRespTypeConverts] = useState<TypeConvert[]>([]);
+    const [respSuccessCondition, setRespSuccessCondition] = useState<SuccessCondition | null>(null);
 
     // 轮询响应映射表单状态
     const [pollRespFieldMappings, setPollRespFieldMappings] = useState<FieldMapping[]>([]);
     const [pollRespValueMappings, setPollRespValueMappings] = useState<ValueMapping[]>([]);
     const [pollRespTypeConverts, setPollRespTypeConverts] = useState<TypeConvert[]>([]);
+    const [pollRespSuccessCondition, setPollRespSuccessCondition] = useState<SuccessCondition | null>(null);
     const [useSeparatePollMapping, setUseSeparatePollMapping] = useState(false);
 
     // 轮询参数映射表单状态（POST请求时使用）
@@ -533,6 +582,7 @@ const ChannelCapabilityModal: React.FC<{
             setRespFieldMappings(respData.fieldMappings);
             setRespValueMappings(respData.valueMappings);
             setRespTypeConverts(respData.typeConverts);
+            setRespSuccessCondition(respData.successCondition);
 
             // 解析轮询响应映射
             const pollRespMapping = channelCapability.pollResponseMapping || {};
@@ -542,11 +592,13 @@ const ChannelCapabilityModal: React.FC<{
                 setPollRespFieldMappings(pollRespData.fieldMappings);
                 setPollRespValueMappings(pollRespData.valueMappings);
                 setPollRespTypeConverts(pollRespData.typeConverts);
+                setPollRespSuccessCondition(pollRespData.successCondition);
             } else {
                 setUseSeparatePollMapping(false);
                 setPollRespFieldMappings([]);
                 setPollRespValueMappings([]);
                 setPollRespTypeConverts([]);
+                setPollRespSuccessCondition(null);
             }
 
             // 解析轮询参数映射
@@ -601,9 +653,11 @@ const ChannelCapabilityModal: React.FC<{
             setRespFieldMappings([]);
             setRespValueMappings([]);
             setRespTypeConverts([]);
+            setRespSuccessCondition(null);
             setPollRespFieldMappings([]);
             setPollRespValueMappings([]);
             setPollRespTypeConverts([]);
+            setPollRespSuccessCondition(null);
             setUseSeparatePollMapping(false);
             setPollParamFieldMappings([]);
             setPollParamFixedParams([]);
@@ -620,11 +674,11 @@ const ChannelCapabilityModal: React.FC<{
         setLoading(true);
         try {
             const paramMapping = buildParamMapping(paramFieldMappings, paramValueMappings, paramFixedParams, paramTypeConverts);
-            const responseMapping = buildResponseMapping(respFieldMappings, respValueMappings, respTypeConverts);
+            const responseMapping = buildResponseMapping(respFieldMappings, respValueMappings, respTypeConverts, respSuccessCondition);
 
             // 轮询响应映射（如果启用单独配置）
             const pollResponseMapping = useSeparatePollMapping
-                ? buildResponseMapping(pollRespFieldMappings, pollRespValueMappings, pollRespTypeConverts)
+                ? buildResponseMapping(pollRespFieldMappings, pollRespValueMappings, pollRespTypeConverts, pollRespSuccessCondition)
                 : null;
 
             const callbackMapping: Record<string, any> = {};
@@ -1519,6 +1573,86 @@ const ChannelCapabilityModal: React.FC<{
                                     ))
                                 )}
                             </div>
+
+                            {/* 成功条件 */}
+                            <div className="border-t border-gray-200 pt-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-sm font-medium text-gray-900">成功条件</h4>
+                                    {!respSuccessCondition ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setRespSuccessCondition({
+                                                field: '',
+                                                operator: 'eq',
+                                                value: ''
+                                            })}
+                                            className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                                        >
+                                            + 添加条件
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setRespSuccessCondition(null)}
+                                            className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg"
+                                        >
+                                            移除条件
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-500 mb-3">配置响应成功的判断条件（如 code 等于 0
+                                    表示成功）。不配置时使用默认的 status 字段判断</p>
+                                {respSuccessCondition && (
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                        <input
+                                            type="text"
+                                            value={respSuccessCondition.field}
+                                            onChange={e => setRespSuccessCondition({
+                                                ...respSuccessCondition,
+                                                field: e.target.value
+                                            })}
+                                            className="w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            placeholder="字段路径，如 code"
+                                        />
+                                        <select
+                                            value={respSuccessCondition.operator}
+                                            onChange={e => setRespSuccessCondition({
+                                                ...respSuccessCondition,
+                                                operator: e.target.value as SuccessCondition['operator']
+                                            })}
+                                            className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            {SUCCESS_CONDITION_OPERATORS.map(op => (
+                                                <option key={op.value} value={op.value}>{op.label}</option>
+                                            ))}
+                                        </select>
+                                        {SUCCESS_CONDITION_OPERATORS.find(o => o.value === respSuccessCondition.operator)?.needValue && (
+                                            <input
+                                                type="text"
+                                                value={respSuccessCondition.value !== undefined ? String(respSuccessCondition.value) : ''}
+                                                onChange={e => setRespSuccessCondition({
+                                                    ...respSuccessCondition,
+                                                    value: e.target.value
+                                                })}
+                                                className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                placeholder="比较值"
+                                            />
+                                        )}
+                                        {SUCCESS_CONDITION_OPERATORS.find(o => o.value === respSuccessCondition.operator)?.needValues && (
+                                            <input
+                                                type="text"
+                                                value={respSuccessCondition.values?.join(',') || ''}
+                                                onChange={e => setRespSuccessCondition({
+                                                    ...respSuccessCondition,
+                                                    values: e.target.value.split(',').map(v => v.trim()).filter(v => v)
+                                                })}
+                                                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                placeholder="值列表，逗号分隔"
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -1702,6 +1836,86 @@ const ChannelCapabilityModal: React.FC<{
                                             </button>
                                         </div>
                                     ))
+                                )}
+                            </div>
+
+                            {/* 成功条件 */}
+                            <div className="border-t border-gray-200 pt-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-sm font-medium text-gray-900">成功条件</h4>
+                                    {!pollRespSuccessCondition ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setPollRespSuccessCondition({
+                                                field: '',
+                                                operator: 'eq',
+                                                value: ''
+                                            })}
+                                            className="px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                                        >
+                                            + 添加条件
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setPollRespSuccessCondition(null)}
+                                            className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg"
+                                        >
+                                            移除条件
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-500 mb-3">配置轮询响应成功的判断条件。不配置时使用默认的
+                                    status 字段判断</p>
+                                {pollRespSuccessCondition && (
+                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                        <input
+                                            type="text"
+                                            value={pollRespSuccessCondition.field}
+                                            onChange={e => setPollRespSuccessCondition({
+                                                ...pollRespSuccessCondition,
+                                                field: e.target.value
+                                            })}
+                                            className="w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            placeholder="字段路径，如 code"
+                                        />
+                                        <select
+                                            value={pollRespSuccessCondition.operator}
+                                            onChange={e => setPollRespSuccessCondition({
+                                                ...pollRespSuccessCondition,
+                                                operator: e.target.value as SuccessCondition['operator']
+                                            })}
+                                            className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            {SUCCESS_CONDITION_OPERATORS.map(op => (
+                                                <option key={op.value} value={op.value}>{op.label}</option>
+                                            ))}
+                                        </select>
+                                        {SUCCESS_CONDITION_OPERATORS.find(o => o.value === pollRespSuccessCondition.operator)?.needValue && (
+                                            <input
+                                                type="text"
+                                                value={pollRespSuccessCondition.value !== undefined ? String(pollRespSuccessCondition.value) : ''}
+                                                onChange={e => setPollRespSuccessCondition({
+                                                    ...pollRespSuccessCondition,
+                                                    value: e.target.value
+                                                })}
+                                                className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                placeholder="比较值"
+                                            />
+                                        )}
+                                        {SUCCESS_CONDITION_OPERATORS.find(o => o.value === pollRespSuccessCondition.operator)?.needValues && (
+                                            <input
+                                                type="text"
+                                                value={pollRespSuccessCondition.values?.join(',') || ''}
+                                                onChange={e => setPollRespSuccessCondition({
+                                                    ...pollRespSuccessCondition,
+                                                    values: e.target.value.split(',').map(v => v.trim()).filter(v => v)
+                                                })}
+                                                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                placeholder="值列表，逗号分隔"
+                                            />
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </div>

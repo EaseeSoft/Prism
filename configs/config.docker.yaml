@@ -1,0 +1,32 @@
+# Docker Compose 环境配置
+# 复制此文件为 config.yaml 后使用
+
+server:
+  port: 23523
+  jwt_secret: "change-this-to-a-secure-random-string"
+
+database:
+  host: mysql          # Docker 服务名
+  port: 3306
+  user: prism
+  password: prism123456
+  dbname: prism
+
+redis:
+  addr: redis:6379     # Docker 服务名
+  password: ""
+  db: 0
+
+storage:
+  type: ""             # 留空禁用, 或 "tencent" 启用腾讯云 COS
+  tencent:
+    secret_id: ""
+    secret_key: ""
+    region: ""
+    bucket: ""
+    cdn: ""
+
+worker:
+  concurrency: 10
+  poll_interval: 5s
+  max_retry: 3

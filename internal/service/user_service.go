@@ -125,3 +125,27 @@ func (s *UserService) RechargeUser(userID uint, amount float64) error {
 	return model.DB().Model(&model.User{}).Where("id = ?", userID).
 		UpdateColumn("balance", gorm.Expr("balance + ?", amount)).Error
 }
+
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+// ChangePassword 修改用户密码
+func (s *UserService) ChangePassword(userID uint, req *ChangePasswordRequest) error {
+	var user model.User
+	if err := model.DB().Model(&model.User{}).First(&user, userID).Error; err != nil {
+		return errors.New("user not found")
+	}
+
+	if !auth.CheckPassword(req.OldPassword, user.Password) {
+		return errors.New("incorrect old password")
+	}
+
+	hashedPassword, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		return err
+	}
+
+	return model.DB().Model(&model.User{}).Where("id = ?", userID).Update("password", hashedPassword).Error
+}

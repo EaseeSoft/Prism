@@ -9,6 +9,7 @@ const (
 	RequestTypeSubmit   RequestType = "submit"   // 提交任务到第三方
 	RequestTypePoll     RequestType = "poll"     // 轮询任务状态
 	RequestTypeCallback RequestType = "callback" // 发送回调给调用方
+	RequestTypeChat     RequestType = "chat"     // Chat 对话请求
 )
 
 // ChannelRequestLog 渠道请求日志
@@ -16,11 +17,12 @@ type ChannelRequestLog struct {
 	BaseModel
 	TaskID         uint   `gorm:"index;comment:关联任务ID" json:"task_id"`
 	TaskNo         string `gorm:"type:varchar(32);index;comment:任务编号" json:"task_no"`
+	ConversationID uint   `gorm:"index;comment:关联对话ID(Chat)" json:"conversation_id"`
 	ChannelID      uint   `gorm:"index;comment:渠道ID" json:"channel_id"`
 	AccountID      uint   `gorm:"comment:渠道账号ID" json:"account_id"`
-	CapabilityCode string `gorm:"type:varchar(30);index;comment:能力编码" json:"capability_code"`
+	CapabilityCode string `gorm:"type:varchar(50);index;comment:能力编码或模型编码" json:"capability_code"`
 
-	// 请求类型: submit(提交) / poll(轮询) / callback(回调通知)
+	// 请求类型: submit(提交) / poll(轮询) / callback(回调通知) / chat(对话)
 	RequestType RequestType `gorm:"type:varchar(20);index;comment:请求类型" json:"request_type"`
 
 	// 请求信息

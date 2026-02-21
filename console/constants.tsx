@@ -9,19 +9,25 @@ import {
     Zap,
     Book,
     Activity,
-    DollarSign
+    Bot,
+    Link2,
+    MessageSquare,
+    Lock
 } from 'lucide-react';
 
 export const ROUTES = [
   { path: '/dashboard', name: '仪表盘', icon: <LayoutDashboard size={20} />, roles: ['admin', 'user'] },
   { path: '/channels', name: '渠道管理', icon: <Layers size={20} />, roles: ['admin'] },
   { path: '/capabilities', name: '能力配置', icon: <Zap size={20} />, roles: ['admin'] },
-  { path: '/capability-prices', name: '能力列表', icon: <DollarSign size={20} />, roles: ['user', 'admin'] },
+    {path: '/chat-models', name: '语言模型', icon: <Bot size={20}/>, roles: ['admin']},
+    {path: '/chat-model-channels', name: '模型渠道', icon: <Link2 size={20}/>, roles: ['admin']},
   { path: '/users', name: '用户管理', icon: <Users size={20} />, roles: ['admin'] },
   { path: '/tokens', name: '令牌管理', icon: <Key size={20} />, roles: ['user', 'admin'] },
     {path: '/api-docs', name: 'API 文档', icon: <Book size={20}/>, roles: ['user', 'admin']},
   { path: '/logs', name: '调用日志', icon: <FileText size={20} />, roles: ['user', 'admin'] },
+    {path: '/chat-logs', name: '对话记录', icon: <MessageSquare size={20}/>, roles: ['user', 'admin']},
   { path: '/request-logs', name: '请求日志', icon: <Activity size={20} />, roles: ['admin'] },
+    {path: '/change-password', name: '修改密码', icon: <Lock size={20}/>, roles: ['user', 'admin']},
 ];
 
 export const STATUS_COLORS = {

@@ -8,16 +8,16 @@ import {
     Globe,
     ArrowRight,
     CheckCircle2,
-    Github,
-    Star
+    Coins
 } from 'lucide-react';
 import logo from '@/assets/logo.png';
 
 interface HomeProps {
     onLogin: () => void;
+    onPricing: () => void;
 }
 
-const Home: React.FC<HomeProps> = ({onLogin}) => {
+const Home: React.FC<HomeProps> = ({onLogin, onPricing}) => {
     const features = [
         {
             icon: <Layers className="w-6 h-6"/>,
@@ -69,15 +69,13 @@ const Home: React.FC<HomeProps> = ({onLogin}) => {
                         <span className="text-sm text-gray-400 hidden sm:inline">Prism AI Gateway</span>
                     </div>
                     <div className="flex items-center gap-4">
-                        <a
-                            href="https://github.com/EaseeSoft/Prism"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                        <button
+                            onClick={onPricing}
+                            className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-2"
                         >
-                            <Github className="w-5 h-5"/>
-                            <span className="hidden sm:inline">GitHub</span>
-                        </a>
+                            <Coins className="w-4 h-4"/>
+                            价格
+                        </button>
                         <button
                             onClick={onLogin}
                             className="px-5 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
@@ -112,16 +110,13 @@ const Home: React.FC<HomeProps> = ({onLogin}) => {
                             开始使用
                             <ArrowRight className="w-5 h-5"/>
                         </button>
-                        <a
-                            href="https://github.com/EaseeSoft/Prism"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-8 py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all flex items-center gap-2"
+                        <button
+                            onClick={onPricing}
+                            className="px-8 py-3 bg-white text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all border border-gray-200 flex items-center gap-2"
                         >
-                            <Github className="w-5 h-5"/>
-                            GitHub
-                            <Star className="w-4 h-4"/>
-                        </a>
+                            <Coins className="w-5 h-5"/>
+                            查看价格
+                        </button>
                     </div>
                 </div>
             </section>
@@ -240,55 +235,17 @@ const Home: React.FC<HomeProps> = ({onLogin}) => {
             </section>
 
             {/* Footer */}
-            <footer className="py-10 px-6 border-t border-gray-100 bg-gray-50">
-                <div className="max-w-6xl mx-auto">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
-                        <div className="flex items-center gap-3">
-                            <img src={logo} alt="Prism" className="w-10 h-10"/>
-                            <div>
-                                <div className="font-bold text-gray-900">棱镜 Prism</div>
-                                <div className="text-sm text-gray-500">轻量级 AI Gateway 平台</div>
-                            </div>
+            <footer className="py-8 px-6 border-t border-gray-100">
+                <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <div
+                            className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">
+                            <img src={logo} alt="Prism" className="w-8 h-8"/>
                         </div>
-                        <div className="flex items-center gap-6">
-                            <a
-                                href="https://github.com/EaseeSoft/Prism"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-                            >
-                                <Github className="w-5 h-5"/>
-                                <span>GitHub</span>
-                            </a>
-                            <a
-                                href="https://github.com/EaseeSoft/Prism/issues"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-gray-600 hover:text-gray-900 transition-colors"
-                            >
-                                问题反馈
-                            </a>
-                            <a
-                                href="https://github.com/EaseeSoft/Prism/blob/main/LICENSE"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-gray-600 hover:text-gray-900 transition-colors"
-                            >
-                                MIT License
-                            </a>
-                        </div>
+                        <span className="text-gray-600">棱镜 Prism</span>
                     </div>
-                    <div className="border-t border-gray-200 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-                        <div className="text-gray-400 text-sm">
-                            Copyright &copy; {new Date().getFullYear()} EaseeSoft. All rights reserved.
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-400 text-sm">
-                            <span>Open Source</span>
-                            <span className="text-gray-300">|</span>
-                            <span>MIT License</span>
-                            <span className="text-gray-300">|</span>
-                            <span>v1.0.0</span>
-                        </div>
+                    <div className="text-gray-400 text-sm">
+                        v1.0.0 - AI Gateway
                     </div>
                 </div>
             </footer>

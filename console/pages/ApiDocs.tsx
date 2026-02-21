@@ -12,7 +12,7 @@ const API_ENDPOINTS = [
                 path: '/v1/channels',
                 name: '获取渠道列表',
                 description: '获取所有可用的渠道编码列表',
-                auth: 'Bearer Token',
+                auth: 'Token',
                 pathParams: [],
                 bodyParams: [],
                 requestExample: null,
@@ -27,7 +27,7 @@ const API_ENDPOINTS = [
                 path: '/v1/capabilities',
                 name: '获取能力列表',
                 description: '获取所有可用的能力列表及其支持的渠道，可通过 channel 或 type 参数筛选',
-                auth: 'Bearer Token',
+                auth: 'Token',
                 pathParams: [],
                 bodyParams: [
                     {
@@ -83,7 +83,7 @@ const API_ENDPOINTS = [
                 path: '/v1/capabilities/:capability',
                 name: '提交任务',
                 description: '调用指定能力创建任务，如 /v1/capabilities/text2img_mj',
-                auth: 'Bearer Token',
+                auth: 'Token',
                 pathParams: [
                     {
                         name: 'capability',
@@ -94,7 +94,12 @@ const API_ENDPOINTS = [
                 ],
                 bodyParams: [
                     {name: 'channel', type: 'string', required: false, description: '渠道类型（可选，用于指定特定渠道）'},
-                    {name: 'callback_url', type: 'string', required: false, description: '任务完成后的回调地址'},
+                    {
+                        name: 'callback_url',
+                        type: 'string',
+                        required: false,
+                        description: '任务完成后的回调地址，系统将 POST 结果到此地址（详见「回调通知」）'
+                    },
                     {name: 'prompt', type: 'string', required: true, description: '提示词'},
                     {name: 'negative_prompt', type: 'string', required: false, description: '负向提示词'},
                     {
@@ -136,7 +141,7 @@ const API_ENDPOINTS = [
                 path: '/v1/tasks/:task_no',
                 name: '查询任务',
                 description: '根据任务编号查询任务状态和结果',
-                auth: 'Bearer Token',
+                auth: 'Token',
                 pathParams: [
                     {name: 'task_no', type: 'string', required: true, description: '任务编号'},
                 ],
@@ -148,20 +153,12 @@ const API_ENDPOINTS = [
   "data": {
     "task_no": "task_abc123def456",
     "status": "success",
-    "channel": "midjourney",
-    "capability": "text2img",
-    "model": "v6",
     "progress": 100,
     "result": {
-      "images": [
-        {
-          "url": "https://cdn.example.com/result.png",
-          "width": 1920,
-          "height": 1080
-        }
-      ]
+      "url": "https://cdn.example.com/result.png"
     },
     "cost": 0.1,
+    "error": "",
     "created_at": "2024-01-01T00:00:00Z",
     "completed_at": "2024-01-01T00:00:30Z"
   }
@@ -172,7 +169,7 @@ const API_ENDPOINTS = [
                 path: '/v1/tasks/:task_no/cancel',
                 name: '取消任务',
                 description: '取消正在处理中的任务',
-                auth: 'Bearer Token',
+                auth: 'Token',
                 pathParams: [
                     {name: 'task_no', type: 'string', required: true, description: '任务编号'},
                 ],
@@ -184,6 +181,167 @@ const API_ENDPOINTS = [
   "data": {
     "task_no": "task_abc123def456",
     "status": "cancelled"
+  }
+}`,
+            },
+        ],
+    },
+    {
+        group: '回调通知',
+        description: '当提交任务时传递了 callback_url，任务完成或失败后系统会向该地址发送 POST 请求通知结果。最多重试 3 次，间隔递增（5s、10s、15s）。',
+        apis: [
+            {
+                method: 'POST',
+                path: '{callback_url}',
+                name: '任务结果回调',
+                description: '系统在任务完成（成功或失败）后，向提交任务时传入的 callback_url 发送 POST 请求（Content-Type: application/json）。你的回调接口返回 HTTP 200 即视为通知成功。',
+                auth: '无',
+                pathParams: [],
+                bodyParams: [
+                    {
+                        name: 'task_id',
+                        type: 'string',
+                        required: true,
+                        description: '任务编号，与提交任务时返回的 task_id 一致'
+                    },
+                    {name: 'status', type: 'string', required: true, description: '任务状态: success 或 failed'},
+                    {
+                        name: 'result',
+                        type: 'object',
+                        required: false,
+                        description: '任务结果（仅 status=success 时存在），包含 url/data 等字段'
+                    },
+                    {name: 'error', type: 'string', required: false, description: '错误信息（仅 status=failed 时存在）'},
+                ],
+                requestExample: `// 成功回调 - 结果为文件URL（图片/视频等）
+{
+  "task_id": "task_abc123def456",
+  "status": "success",
+  "result": {
+    "url": "https://cdn.example.com/result.png"
+  }
+}
+
+// 成功回调 - 结果为数据（角色ID等）
+{
+  "task_id": "task_abc123def456",
+  "status": "success",
+  "result": {
+    "data": "character_9a8b7c6d5e4f"
+  }
+}
+
+// 失败回调
+{
+  "task_id": "task_abc123def456",
+  "status": "failed",
+  "error": "generation failed: content policy violation"
+}`,
+                responseExample: `// 你的回调接口只需返回 HTTP 200 即可
+// 响应体内容不限，系统仅检查 HTTP 状态码
+
+HTTP/1.1 200 OK
+
+{"message": "ok"}`,
+            },
+        ],
+    },
+    {
+        group: 'Chat 对话接口',
+        description: '兼容 OpenAI API 格式的对话补全接口',
+        apis: [
+            {
+                method: 'GET',
+                path: '/v1/models',
+                name: '获取可用模型列表',
+                description: '获取所有可用的 Chat 模型列表，返回格式兼容 OpenAI API',
+                auth: 'Token',
+                pathParams: [],
+                bodyParams: [],
+                requestExample: null,
+                responseExample: `{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-4o",
+      "object": "model",
+      "created": 1704067200,
+      "owned_by": "openai"
+    },
+    {
+      "id": "claude-3-opus",
+      "object": "model",
+      "created": 1704067200,
+      "owned_by": "anthropic"
+    },
+    {
+      "id": "deepseek-chat",
+      "object": "model",
+      "created": 1704067200,
+      "owned_by": "deepseek"
+    }
+  ]
+}`,
+            },
+            {
+                method: 'POST',
+                path: '/v1/chat/completions',
+                name: '对话补全',
+                description: '发送对话消息并获取模型的回复，接口格式兼容 OpenAI Chat Completions API',
+                auth: 'Token',
+                pathParams: [],
+                bodyParams: [
+                    {name: 'model', type: 'string', required: true, description: '模型标识，如 gpt-4o, claude-3-opus'},
+                    {
+                        name: 'messages',
+                        type: 'array',
+                        required: true,
+                        description: '消息数组，每条消息包含 role 和 content'
+                    },
+                    {
+                        name: 'temperature',
+                        type: 'number',
+                        required: false,
+                        description: '温度参数 (0-2)，默认 1，值越高回复越随机'
+                    },
+                    {name: 'max_tokens', type: 'integer', required: false, description: '最大输出 token 数'},
+                    {name: 'top_p', type: 'number', required: false, description: '核采样参数 (0-1)'},
+                    {
+                        name: 'conversation_id',
+                        type: 'string',
+                        required: false,
+                        description: '会话 ID，传入可继续之前的对话上下文'
+                    },
+                ],
+                requestExample: `{
+  "model": "gpt-4o",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Hello, who are you?"}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 1000
+}`,
+                responseExample: `{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "created": 1704067200,
+  "model": "gpt-4o",
+  "conversation_id": "12345",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! I'm an AI assistant. How can I help you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 25,
+    "completion_tokens": 15,
+    "total_tokens": 40
   }
 }`,
             },
@@ -390,14 +548,14 @@ const ApiDocs: React.FC = () => {
                 </div>
                 <div className="space-y-3 text-sm text-indigo-100">
                     <p>1. 在「令牌管理」页面创建 API Token</p>
-                    <p>2. 在请求头中添加认证信息：<code className="bg-white/20 px-2 py-0.5 rounded">Authorization: Bearer
+                    <p>2. 在请求头中添加认证信息：<code className="bg-white/20 px-2 py-0.5 rounded">Authorization:
                         YOUR_TOKEN</code></p>
                     <p>3. 调用能力接口创建任务，然后轮询或等待回调获取结果</p>
                 </div>
                 <div className="mt-4">
                     <CodeBlock
                         code={`curl -X POST "https://api.example.com/v1/capabilities/text2img" \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Authorization: YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"channel": "midjourney", "prompt": "a beautiful sunset"}'`}
                         title="示例请求"

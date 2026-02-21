@@ -5,9 +5,6 @@
 *.so
 *.dylib
 
-
-nul
-
 # Test binary
 *.test
 
@@ -34,7 +31,6 @@ configs/config.local.yaml
 *.log
 logs/
 
+nul
 
-# claude
-.claude/
-claudedocs/
+.claude

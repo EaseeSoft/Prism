@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
+import Pricing from './pages/Pricing';
 import Dashboard from './pages/Dashboard';
 import Channels from './pages/Channels';
 import Capabilities from './pages/Capabilities';
@@ -10,7 +11,10 @@ import Tokens from './pages/Tokens';
 import Logs from './pages/Logs';
 import RequestLogs from './pages/RequestLogs';
 import ApiDocs from './pages/ApiDocs';
-import CapabilityPrices from './pages/CapabilityPrices';
+import ChatModels from './pages/ChatModels';
+import ChatModelChannels from './pages/ChatModelChannels';
+import ChatLogs from './pages/ChatLogs';
+import ChangePassword from './pages/ChangePassword';
 import { User, UserRole } from './types';
 import { login, register, logout, getCurrentUser } from './services/api';
 import {LogIn, UserPlus, ArrowLeft} from 'lucide-react';
@@ -21,6 +25,7 @@ const App: React.FC = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
     const [showAuthForm, setShowAuthForm] = useState(false);
+    const [showPricing, setShowPricing] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -94,10 +99,16 @@ const App: React.FC = () => {
 
     const handleBackToHome = () => {
         setShowAuthForm(false);
+        setShowPricing(false);
         setError('');
         setSuccessMsg('');
         setUsername('');
         setPassword('');
+    };
+
+    const handleShowPricing = () => {
+        setShowPricing(true);
+        setShowAuthForm(false);
     };
 
   if (isLoading) {
@@ -108,10 +119,13 @@ const App: React.FC = () => {
     );
   }
 
-    // 未登录：显示首页或登录表单
+    // 未登录：显示首页或登录表单或价格页面
   if (!user) {
+      if (showPricing) {
+          return <Pricing onBack={handleBackToHome}/>;
+      }
       if (!showAuthForm) {
-          return <Home onLogin={handleShowLogin}/>;
+          return <Home onLogin={handleShowLogin} onPricing={handleShowPricing}/>;
       }
 
     return (
@@ -225,6 +239,8 @@ const App: React.FC = () => {
             <>
               <Route path="/channels" element={<Channels />} />
               <Route path="/capabilities" element={<Capabilities />} />
+                <Route path="/chat-models" element={<ChatModels/>}/>
+                <Route path="/chat-model-channels" element={<ChatModelChannels/>}/>
               <Route path="/users" element={<Users />} />
               <Route path="/request-logs" element={<RequestLogs />} />
             </>
@@ -233,7 +249,8 @@ const App: React.FC = () => {
           <Route path="/tokens" element={<Tokens />} />
             <Route path="/api-docs" element={<ApiDocs/>}/>
           <Route path="/logs" element={<Logs />} />
-          <Route path="/capability-prices" element={<CapabilityPrices />} />
+            <Route path="/chat-logs" element={<ChatLogs/>}/>
+            <Route path="/change-password" element={<ChangePassword/>}/>
 
           <Route path="*" element={<div className="text-center py-20 text-gray-400 font-medium italic">页面正在开发中</div>} />
         </Routes>

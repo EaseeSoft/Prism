@@ -13,8 +13,20 @@ import (
 )
 
 type CreateTokenRequest struct {
-	Name    string  `json:"name" binding:"required,max=50"`
-	Balance float64 `json:"balance"`
+	Name              string                 `json:"name" binding:"required,max=50"`
+	Balance           float64                `json:"balance"`
+	ChannelPriorities []ChannelPriorityInput `json:"channel_priorities"`
+}
+
+type ChannelPriorityInput struct {
+	CapabilityCode string `json:"capability_code"`
+	ChannelID      uint   `json:"channel_id"`
+	Priority       int    `json:"priority"`
+}
+
+type UpdateTokenRequest struct {
+	Name              string                 `json:"name" binding:"max=50"`
+	ChannelPriorities []ChannelPriorityInput `json:"channel_priorities"`
 }
 
 func ListMyTokens(c *gin.Context) {
@@ -26,17 +38,39 @@ func ListMyTokens(c *gin.Context) {
 		return
 	}
 
+	// 查询所有令牌的渠道优先级配置
+	tokenIDs := make([]uint, len(tokens))
+	for i, t := range tokens {
+		tokenIDs[i] = t.ID
+	}
+
+	var priorities []model.TokenChannelPriority
+	if len(tokenIDs) > 0 {
+		model.DB().Where("token_id IN ?", tokenIDs).Order("priority ASC").Find(&priorities)
+	}
+
+	// 按令牌ID分组
+	priorityMap := make(map[uint][]gin.H)
+	for _, p := range priorities {
+		priorityMap[p.TokenID] = append(priorityMap[p.TokenID], gin.H{
+			"capability_code": p.CapabilityCode,
+			"channel_id":      p.ChannelID,
+			"priority":        p.Priority,
+		})
+	}
+
 	result := make([]gin.H, len(tokens))
 	for i, t := range tokens {
 		result[i] = gin.H{
-			"id":         t.ID,
-			"name":       t.Name,
-			"key":        t.Key,
-			"balance":    t.Balance,
-			"total_used": t.TotalUsed,
-			"rate_limit": t.RateLimit,
-			"status":     t.Status,
-			"created_at": t.CreatedAt,
+			"id":                 t.ID,
+			"name":               t.Name,
+			"key":                t.Key,
+			"balance":            t.Balance,
+			"total_used":         t.TotalUsed,
+			"rate_limit":         t.RateLimit,
+			"status":             t.Status,
+			"created_at":         t.CreatedAt,
+			"channel_priorities": priorityMap[t.ID],
 		}
 	}
 
@@ -63,7 +97,18 @@ func CreateToken(c *gin.Context) {
 		Status:    1,
 	}
 
-	if err := model.DB().Model(&model.Token{}).Create(token).Error; err != nil {
+	err := model.DB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(token).Error; err != nil {
+			return err
+		}
+
+		if len(req.ChannelPriorities) > 0 {
+			return saveChannelPriorities(tx, token.ID, req.ChannelPriorities)
+		}
+		return nil
+	})
+
+	if err != nil {
 		internalError(c, errors.ErrInternalError)
 		return
 	}
@@ -76,6 +121,101 @@ func CreateToken(c *gin.Context) {
 	})
 }
 
+func GetToken(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	tokenID := c.Param("id")
+
+	var id uint
+	if _, err := fmt.Sscanf(tokenID, "%d", &id); err != nil {
+		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, "invalid token id"))
+		return
+	}
+
+	var token model.Token
+	if err := model.DB().Where("id = ? AND user_id = ?", id, userID).First(&token).Error; err != nil {
+		notFound(c, errors.ErrTaskNotFound)
+		return
+	}
+
+	// 查询渠道优先级配置
+	var priorities []model.TokenChannelPriority
+	model.DB().Where("token_id = ?", id).Order("capability_code ASC, priority ASC").Find(&priorities)
+
+	priorityList := make([]gin.H, len(priorities))
+	for i, p := range priorities {
+		priorityList[i] = gin.H{
+			"capability_code": p.CapabilityCode,
+			"channel_id":      p.ChannelID,
+			"priority":        p.Priority,
+		}
+	}
+
+	successResponse(c, gin.H{
+		"id":                 token.ID,
+		"name":               token.Name,
+		"key":                token.Key,
+		"balance":            token.Balance,
+		"total_used":         token.TotalUsed,
+		"rate_limit":         token.RateLimit,
+		"status":             token.Status,
+		"created_at":         token.CreatedAt,
+		"channel_priorities": priorityList,
+	})
+}
+
+func UpdateToken(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	tokenID := c.Param("id")
+
+	var id uint
+	if _, err := fmt.Sscanf(tokenID, "%d", &id); err != nil {
+		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, "invalid token id"))
+		return
+	}
+
+	// 验证令牌属于当前用户
+	var token model.Token
+	if err := model.DB().Where("id = ? AND user_id = ?", id, userID).First(&token).Error; err != nil {
+		notFound(c, errors.ErrTaskNotFound)
+		return
+	}
+
+	var req UpdateTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, err.Error()))
+		return
+	}
+
+	err := model.DB().Transaction(func(tx *gorm.DB) error {
+		// 更新名称（如果提供）
+		if req.Name != "" {
+			if err := tx.Model(&token).Update("name", req.Name).Error; err != nil {
+				return err
+			}
+		}
+
+		// 更新渠道优先级配置
+		if req.ChannelPriorities != nil {
+			// 删除旧配置
+			if err := tx.Where("token_id = ?", id).Delete(&model.TokenChannelPriority{}).Error; err != nil {
+				return err
+			}
+			// 保存新配置
+			if len(req.ChannelPriorities) > 0 {
+				return saveChannelPriorities(tx, id, req.ChannelPriorities)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		internalError(c, errors.ErrInternalError)
+		return
+	}
+
+	successResponse(c, gin.H{"updated": true})
+}
+
 func DeleteToken(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	tokenID := c.Param("id")
@@ -86,14 +226,24 @@ func DeleteToken(c *gin.Context) {
 		return
 	}
 
-	result := model.DB().Model(&model.Token{}).Where("id = ? AND user_id = ?", id, userID).Delete(&model.Token{})
-	if result.Error != nil {
-		internalError(c, errors.ErrInternalError)
-		return
-	}
+	err := model.DB().Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.Token{}).Where("id = ? AND user_id = ?", id, userID).Delete(&model.Token{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		// 删除关联的渠道优先级配置
+		return tx.Where("token_id = ?", id).Delete(&model.TokenChannelPriority{}).Error
+	})
 
-	if result.RowsAffected == 0 {
-		notFound(c, errors.ErrTaskNotFound)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			notFound(c, errors.ErrTaskNotFound)
+			return
+		}
+		internalError(c, errors.ErrInternalError)
 		return
 	}
 
@@ -149,185 +299,16 @@ func generateAPIKey() string {
 	return "sk-prism-" + hex.EncodeToString(bytes)
 }
 
-// ChannelPriorityItem 渠道优先级项
-type ChannelPriorityItem struct {
-	ChannelID   uint   `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	ChannelType string `json:"channel_type"`
-	Priority    int    `json:"priority"`
-}
-
-// CapabilityPriorityResponse 能力渠道优先级响应
-type CapabilityPriorityResponse struct {
-	CapabilityCode string                `json:"capability_code"`
-	CapabilityName string                `json:"capability_name"`
-	Channels       []ChannelPriorityItem `json:"channels"`
-}
-
-// GetTokenChannelPriorities 获取令牌的能力渠道优先级配置
-func GetTokenChannelPriorities(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	tokenID := c.Param("id")
-
-	var id uint
-	if _, err := fmt.Sscanf(tokenID, "%d", &id); err != nil {
-		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, "invalid token id"))
-		return
-	}
-
-	// 验证令牌归属
-	var token model.Token
-	if err := model.DB().Where("id = ? AND user_id = ?", id, userID).First(&token).Error; err != nil {
-		notFound(c, errors.ErrTaskNotFound)
-		return
-	}
-
-	// 获取所有启用的能力
-	var capabilities []model.Capability
-	model.DB().Where("status = 1").Find(&capabilities)
-
-	// 获取该令牌的所有优先级配置
-	var priorities []model.TokenChannelPriority
-	model.DB().Where("token_id = ?", id).Order("priority ASC").Find(&priorities)
-
-	// 按能力分组
-	priorityMap := make(map[string][]model.TokenChannelPriority)
-	for _, p := range priorities {
-		priorityMap[p.CapabilityCode] = append(priorityMap[p.CapabilityCode], p)
-	}
-
-	// 获取所有渠道信息
-	channelMap := make(map[uint]model.Channel)
-	var channels []model.Channel
-	model.DB().Where("status = 1").Find(&channels)
-	for _, ch := range channels {
-		channelMap[ch.ID] = ch
-	}
-
-	// 构建响应
-	result := make([]CapabilityPriorityResponse, 0, len(capabilities))
-	for _, cap := range capabilities {
-		item := CapabilityPriorityResponse{
-			CapabilityCode: cap.Code,
-			CapabilityName: cap.Name,
-			Channels:       make([]ChannelPriorityItem, 0),
-		}
-
-		// 添加已配置的渠道
-		if pList, ok := priorityMap[cap.Code]; ok {
-			for _, p := range pList {
-				if ch, exists := channelMap[p.ChannelID]; exists {
-					item.Channels = append(item.Channels, ChannelPriorityItem{
-						ChannelID:   p.ChannelID,
-						ChannelName: ch.Name,
-						ChannelType: ch.Type,
-						Priority:    p.Priority,
-					})
-				}
-			}
-		}
-
-		result = append(result, item)
-	}
-
-	successResponse(c, result)
-}
-
-// SaveTokenChannelPrioritiesRequest 保存令牌渠道优先级请求
-type SaveTokenChannelPrioritiesRequest struct {
-	CapabilityCode    string `json:"capability_code" binding:"required"`
-	ChannelPriorities []struct {
-		ChannelID uint `json:"channel_id" binding:"required"`
-		Priority  int  `json:"priority" binding:"required,min=1"`
-	} `json:"channel_priorities" binding:"required"`
-}
-
-// SaveTokenChannelPriorities 批量保存令牌的能力渠道优先级配置
-func SaveTokenChannelPriorities(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	tokenID := c.Param("id")
-
-	var id uint
-	if _, err := fmt.Sscanf(tokenID, "%d", &id); err != nil {
-		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, "invalid token id"))
-		return
-	}
-
-	// 验证令牌归属
-	var token model.Token
-	if err := model.DB().Where("id = ? AND user_id = ?", id, userID).First(&token).Error; err != nil {
-		notFound(c, errors.ErrTaskNotFound)
-		return
-	}
-
-	var req SaveTokenChannelPrioritiesRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, err.Error()))
-		return
-	}
-
-	// 开启事务
-	tx := model.DB().Begin()
-
-	// 删除该令牌该能力的所有旧配置
-	if err := tx.Where("token_id = ? AND capability_code = ?", id, req.CapabilityCode).
-		Delete(&model.TokenChannelPriority{}).Error; err != nil {
-		tx.Rollback()
-		internalError(c, errors.ErrInternalError)
-		return
-	}
-
-	// 批量插入新配置
-	for _, cp := range req.ChannelPriorities {
-		priority := &model.TokenChannelPriority{
-			TokenID:        id,
-			CapabilityCode: req.CapabilityCode,
-			ChannelID:      cp.ChannelID,
-			Priority:       cp.Priority,
-		}
-		if err := tx.Create(priority).Error; err != nil {
-			tx.Rollback()
-			internalError(c, errors.ErrInternalError)
-			return
+// saveChannelPriorities 保存渠道优先级配置
+func saveChannelPriorities(tx *gorm.DB, tokenID uint, items []ChannelPriorityInput) error {
+	priorities := make([]model.TokenChannelPriority, len(items))
+	for i, item := range items {
+		priorities[i] = model.TokenChannelPriority{
+			TokenID:        tokenID,
+			CapabilityCode: item.CapabilityCode,
+			ChannelID:      item.ChannelID,
+			Priority:       item.Priority,
 		}
 	}
-
-	tx.Commit()
-	successResponse(c, gin.H{"saved": true})
-}
-
-// GetCapabilityChannels 获取某个能力支持的所有渠道
-func GetCapabilityChannels(c *gin.Context) {
-	capabilityCode := c.Query("code")
-	if capabilityCode == "" {
-		badRequest(c, errors.WithMessage(errors.ErrInvalidParams, "capability code is required"))
-		return
-	}
-
-	// 查询支持该能力的渠道能力配置
-	var channelCapabilities []model.ChannelCapability
-	model.DB().Where("capability_code = ? AND status = 1", capabilityCode).Find(&channelCapabilities)
-
-	// 获取渠道ID列表
-	channelIDs := make([]uint, 0, len(channelCapabilities))
-	for _, cc := range channelCapabilities {
-		channelIDs = append(channelIDs, cc.ChannelID)
-	}
-
-	// 查询渠道信息
-	var channels []model.Channel
-	if len(channelIDs) > 0 {
-		model.DB().Where("id IN ? AND status = 1", channelIDs).Find(&channels)
-	}
-
-	result := make([]gin.H, 0, len(channels))
-	for _, ch := range channels {
-		result = append(result, gin.H{
-			"id":   ch.ID,
-			"type": ch.Type,
-			"name": ch.Name,
-		})
-	}
-
-	successResponse(c, result)
+	return tx.Create(&priorities).Error
 }

@@ -48,17 +48,17 @@ type InvokeResponse struct {
 
 // Invoke 调用能力接口
 func (s *CapabilityService) Invoke(ctx context.Context, req *InvokeRequest) (*InvokeResponse, error) {
+	// 1. 查找渠道
 	var channel model.Channel
 	var cc model.ChannelCapability
-	var account model.ChannelAccount
 
-	// 1. 查找渠道和能力配置
 	if req.Channel != "" {
-		// 指定了渠道，直接查找
+		// 指定了渠道，使用指定渠道
 		if err := model.DB().Where("type = ? AND status = ?", req.Channel, 1).First(&channel).Error; err != nil {
 			return nil, fmt.Errorf("channel not found: %s", req.Channel)
 		}
 
+		// 查找渠道能力配置
 		query := model.DB().Where("channel_id = ? AND capability_code = ? AND status = ?",
 			channel.ID, req.Capability, 1)
 		if req.Model != "" {
@@ -67,24 +67,18 @@ func (s *CapabilityService) Invoke(ctx context.Context, req *InvokeRequest) (*In
 		if err := query.First(&cc).Error; err != nil {
 			return nil, fmt.Errorf("capability not supported: %s/%s", req.Channel, req.Capability)
 		}
-
-		// 选择账号
-		err := model.DB().Where("channel_id = ? AND status = 1", channel.ID).
-			Order("current_tasks ASC, weight DESC").
-			First(&account).Error
-		if err != nil {
-			return nil, fmt.Errorf("no available account for channel: %s", req.Channel)
-		}
 	} else {
-		// 未指定渠道，按优先级选择
-		var err error
-		channel, cc, account, err = s.selectChannelByPriority(req.TokenID, req.Capability, req.Model)
+		// 未指定渠道，按令牌配置的优先级查找
+		found, err := s.selectChannelByTokenPriority(req.TokenID, req.Capability, req.Model, &channel, &cc)
 		if err != nil {
 			return nil, err
 		}
+		if !found {
+			return nil, fmt.Errorf("no channel configured for capability: %s", req.Capability)
+		}
 	}
 
-	// 2. 如果配置了单价，检查余额并扣费
+	// 3. 如果配置了单价，检查余额并扣费
 	logger.Info("capability price check",
 		zap.String("capability", req.Capability),
 		zap.Float64("price", cc.Price))
@@ -96,6 +90,19 @@ func (s *CapabilityService) Invoke(ctx context.Context, req *InvokeRequest) (*In
 			return nil, fmt.Errorf("insufficient balance: %w", err)
 		}
 		charged = true
+	}
+
+	// 4. 选择账号
+	var account model.ChannelAccount
+	err := model.DB().Where("channel_id = ? AND status = 1", channel.ID).
+		Order("current_tasks ASC, weight DESC").
+		First(&account).Error
+	if err != nil {
+		// 扣费失败需要退回
+		if charged {
+			_ = billingService.Refund(req.TokenID, req.UserID, cc.Price)
+		}
+		return nil, fmt.Errorf("no available account")
 	}
 
 	// 增加账号任务数
@@ -225,11 +232,41 @@ func (s *CapabilityService) executeTask(
 
 // handleSyncResult 处理同步结果
 func (s *CapabilityService) handleSyncResult(task *model.Task, cc *model.ChannelCapability, resp map[string]any) {
+	// 先检查成功条件（基于原始响应）
+	isSuccess, isFailed := s.responseMapper.CheckSuccess(resp, cc.ResponseMapping)
+
 	result, err := s.responseMapper.Map(resp, cc.ResponseMapping)
 	if err != nil {
 		s.failTask(task, err.Error())
 		return
 	}
+
+	// 如果配置了成功条件
+	if isSuccess {
+		s.completeTask(task, cc, result)
+		return
+	}
+	if isFailed {
+		errMsg, _ := result["error"].(string)
+		if errMsg == "" {
+			errMsg = "request failed by success condition"
+		}
+		s.failTask(task, errMsg)
+		return
+	}
+
+	// 没有配置成功条件时，检查映射后的 status 字段
+	status, _ := result["status"].(string)
+	if status == "failed" {
+		errMsg, _ := result["error"].(string)
+		if errMsg == "" {
+			errMsg = "request failed"
+		}
+		s.failTask(task, errMsg)
+		return
+	}
+
+	// status 不是 failed 则视为成功
 	s.completeTask(task, cc, result)
 }
 
@@ -311,14 +348,32 @@ func (s *CapabilityService) handlePollResult(
 		var respMap map[string]any
 		json.Unmarshal(resp, &respMap)
 
+		// 先检查成功条件（基于原始响应）
+		isSuccess, isFailed := s.responseMapper.CheckSuccess(respMap, pollRespMapping)
+
 		result, _ := s.responseMapper.Map(respMap, pollRespMapping)
-		status, _ := result["status"].(string)
 
 		// 更新进度
 		if progress, ok := result["progress"].(float64); ok {
 			model.DB().Model(task).Update("progress", int(progress))
 		}
 
+		// 如果配置了成功条件，优先使用
+		if isSuccess {
+			s.completeTask(task, cc, result)
+			return
+		}
+		if isFailed {
+			errMsg, _ := result["error"].(string)
+			if errMsg == "" {
+				errMsg = "request failed by success condition"
+			}
+			s.failTask(task, errMsg)
+			return
+		}
+
+		// 如果没有配置成功条件，使用原有的 status 字段判断逻辑
+		status, _ := result["status"].(string)
 		if status == "success" {
 			s.completeTask(task, cc, result)
 			return
@@ -359,15 +414,8 @@ func (s *CapabilityService) completeTask(task *model.Task, cc *model.ChannelCapa
 
 	// 尝试转存文件到COS
 	if storage.DefaultStorage != nil {
-		// 获取结果URL
-		var originURL string
-		if url, ok := result["image_url"].(string); ok && url != "" {
-			originURL = url
-		} else if url, ok := result["video_url"].(string); ok && url != "" {
-			originURL = url
-		} else if url, ok := result["url"].(string); ok && url != "" {
-			originURL = url
-		}
+		// 获取结果URL（统一使用 url 字段）
+		originURL, _ := result["url"].(string)
 
 		if originURL != "" {
 			// 下载原始文件
@@ -385,14 +433,7 @@ func (s *CapabilityService) completeTask(task *model.Task, cc *model.ChannelCapa
 				if err != nil {
 					logger.Error("upload to storage failed", zap.String("task_no", task.TaskNo), zap.Error(err))
 				} else {
-					// 更新结果中的URL
-					if _, ok := result["image_url"]; ok {
-						result["image_url"] = finalURL
-					} else if _, ok := result["video_url"]; ok {
-						result["video_url"] = finalURL
-					} else {
-						result["url"] = finalURL
-					}
+					result["url"] = finalURL
 					logger.Info("file transferred to storage", zap.String("task_no", task.TaskNo), zap.String("url", finalURL))
 				}
 			}
@@ -581,7 +622,24 @@ func (s *CapabilityService) HandleCallback(ctx context.Context, channelType stri
 			continue
 		}
 
-		// 更新任务
+		// 先检查成功条件（基于原始响应）
+		isSuccess, isFailed := s.responseMapper.CheckSuccess(body, mappingData)
+
+		// 如果配置了成功条件，优先使用
+		if isSuccess {
+			s.completeTask(task, &cc, result)
+			return nil
+		}
+		if isFailed {
+			errMsg, _ := result["error"].(string)
+			if errMsg == "" {
+				errMsg = "callback failed by success condition"
+			}
+			s.failTask(task, errMsg)
+			return nil
+		}
+
+		// 如果没有配置成功条件，使用原有的 status 字段判断逻辑
 		status, _ := result["status"].(string)
 		if status == "success" {
 			s.completeTask(task, &cc, result)
@@ -639,86 +697,49 @@ func (s *CapabilityService) logRequest(task *model.Task, reqType model.RequestTy
 	NewRequestLogService().Log(log)
 }
 
-// selectChannelByPriority 按优先级选择渠道
-func (s *CapabilityService) selectChannelByPriority(tokenID uint, capabilityCode string, modelName string) (model.Channel, model.ChannelCapability, model.ChannelAccount, error) {
-	var channel model.Channel
-	var cc model.ChannelCapability
-	var account model.ChannelAccount
-
-	// 1. 查询该令牌该能力的优先级配置
+// selectChannelByTokenPriority 按令牌配置的优先级查找可用渠道
+func (s *CapabilityService) selectChannelByTokenPriority(
+	tokenID uint,
+	capabilityCode string,
+	modelName string,
+	channel *model.Channel,
+	cc *model.ChannelCapability,
+) (bool, error) {
+	// 查询令牌的渠道优先级配置
 	var priorities []model.TokenChannelPriority
-	model.DB().Where("token_id = ? AND capability_code = ?", tokenID, capabilityCode).
+	err := model.DB().
+		Where("token_id = ? AND capability_code = ?", tokenID, capabilityCode).
 		Order("priority ASC").
-		Find(&priorities)
-
-	// 2. 如果有优先级配置，按优先级顺序查找可用渠道
-	if len(priorities) > 0 {
-		for _, p := range priorities {
-			// 检查渠道是否可用
-			var ch model.Channel
-			if err := model.DB().Where("id = ? AND status = 1", p.ChannelID).First(&ch).Error; err != nil {
-				continue
-			}
-
-			// 检查渠道能力配置是否可用
-			var capability model.ChannelCapability
-			query := model.DB().Where("channel_id = ? AND capability_code = ? AND status = 1", p.ChannelID, capabilityCode)
-			if modelName != "" {
-				query = query.Where("model = ?", modelName)
-			}
-			if err := query.First(&capability).Error; err != nil {
-				continue
-			}
-
-			// 检查是否有可用账号
-			var acc model.ChannelAccount
-			if err := model.DB().Where("channel_id = ? AND status = 1", p.ChannelID).
-				Order("current_tasks ASC, weight DESC").
-				First(&acc).Error; err != nil {
-				continue
-			}
-
-			// 找到可用渠道
-			logger.Info("selected channel by priority",
-				zap.Uint("token_id", tokenID),
-				zap.String("capability", capabilityCode),
-				zap.Uint("channel_id", p.ChannelID),
-				zap.Int("priority", p.Priority))
-
-			return ch, capability, acc, nil
-		}
+		Find(&priorities).Error
+	if err != nil {
+		return false, fmt.Errorf("failed to get token channel priorities: %w", err)
 	}
 
-	// 3. 如果没有优先级配置或所有配置的渠道都不可用，使用默认策略
-	var channelCapabilities []model.ChannelCapability
-	query := model.DB().Where("capability_code = ? AND status = 1", capabilityCode)
-	if modelName != "" {
-		query = query.Where("model = ?", modelName)
-	}
-	query.Find(&channelCapabilities)
-
-	for _, capability := range channelCapabilities {
-		// 检查渠道是否可用
+	// 按优先级遍历配置
+	for _, p := range priorities {
+		// 检查渠道是否启用
 		var ch model.Channel
-		if err := model.DB().Where("id = ? AND status = 1", capability.ChannelID).First(&ch).Error; err != nil {
+		if err := model.DB().Where("id = ? AND status = ?", p.ChannelID, 1).First(&ch).Error; err != nil {
 			continue
 		}
 
-		// 检查是否有可用账号
-		var acc model.ChannelAccount
-		if err := model.DB().Where("channel_id = ? AND status = 1", capability.ChannelID).
-			Order("current_tasks ASC, weight DESC").
-			First(&acc).Error; err != nil {
+		// 检查渠道能力配置是否存在且启用
+		query := model.DB().Where("channel_id = ? AND capability_code = ? AND status = ?",
+			p.ChannelID, capabilityCode, 1)
+		if modelName != "" {
+			query = query.Where("model = ?", modelName)
+		}
+
+		var capConfig model.ChannelCapability
+		if err := query.First(&capConfig).Error; err != nil {
 			continue
 		}
 
-		logger.Info("selected channel by default",
-			zap.Uint("token_id", tokenID),
-			zap.String("capability", capabilityCode),
-			zap.Uint("channel_id", capability.ChannelID))
-
-		return ch, capability, acc, nil
+		// 找到可用渠道
+		*channel = ch
+		*cc = capConfig
+		return true, nil
 	}
 
-	return channel, cc, account, fmt.Errorf("no available channel for capability: %s", capabilityCode)
+	return false, nil
 }

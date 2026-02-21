@@ -38,5 +38,10 @@ func AutoMigrate() error {
 		&Task{},
 		&ChannelRequestLog{},
 		&TokenChannelPriority{},
+		// Chat 相关表
+		&ChatModel{},
+		&ChatModelChannel{},
+		&Conversation{},
+		&Message{},
 	)
 }

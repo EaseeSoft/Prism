@@ -1,12 +1,30 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Clock, ChevronRight, X, Code, RefreshCw, ChevronLeft, AlertCircle, CheckCircle } from 'lucide-react';
-import { fetchRequestLogs, fetchCapabilities, fetchChannels, RequestLogListParams } from '../services/api';
+import {
+    Search,
+    Clock,
+    ChevronRight,
+    X,
+    Code,
+    RefreshCw,
+    ChevronLeft,
+    AlertCircle,
+    CheckCircle,
+    RotateCw
+} from 'lucide-react';
+import {
+    fetchRequestLogs,
+    fetchCapabilities,
+    fetchChannels,
+    retryRequestLog,
+    RequestLogListParams
+} from '../services/api';
 import { ChannelRequestLog, Capability, Channel } from '../types';
 
 const REQUEST_TYPE_MAP: Record<string, { label: string; color: string }> = {
   submit: { label: '提交', color: 'bg-blue-100 text-blue-700' },
   poll: { label: '轮询', color: 'bg-purple-100 text-purple-700' },
   callback: { label: '回调', color: 'bg-orange-100 text-orange-700' },
+    chat: {label: 'Chat', color: 'bg-green-100 text-green-700'},
 };
 
 const RequestLogs: React.FC = () => {
@@ -23,6 +41,9 @@ const RequestLogs: React.FC = () => {
   // 过滤条件
   const [filters, setFilters] = useState<RequestLogListParams>({});
   const [keyword, setKeyword] = useState('');
+    const [retryingId, setRetryingId] = useState<number | null>(null);
+    const [confirmRetryId, setConfirmRetryId] = useState<number | null>(null);
+    const [retryError, setRetryError] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -57,6 +78,28 @@ const RequestLogs: React.FC = () => {
     setPage(1);
     loadLogs({ task_no: keyword });
   };
+
+    const handleRetry = async (e: React.MouseEvent, logId: number) => {
+        e.stopPropagation();
+        setConfirmRetryId(logId);
+    };
+
+    const doRetry = async () => {
+        if (!confirmRetryId) return;
+        setConfirmRetryId(null);
+        setRetryingId(confirmRetryId);
+        setRetryError('');
+        try {
+            const newLog = await retryRequestLog(confirmRetryId);
+            setSelectedLog(newLog);
+            setIsDrawerOpen(true);
+            loadLogs();
+        } catch (err: any) {
+            setRetryError(err.message);
+        } finally {
+            setRetryingId(null);
+        }
+    };
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -126,6 +169,7 @@ const RequestLogs: React.FC = () => {
             <option value="submit">提交</option>
             <option value="poll">轮询</option>
             <option value="callback">回调</option>
+              <option value="chat">Chat</option>
           </select>
         </div>
 
@@ -159,7 +203,9 @@ const RequestLogs: React.FC = () => {
                 return (
                   <tr key={log.id} className="hover:bg-indigo-50/30 transition-colors cursor-pointer group" onClick={() => openDetails(log)}>
                     <td className="px-6 py-4">
-                      <div className="text-xs font-bold text-indigo-600 font-mono">{log.task_no}</div>
+                        <div className="text-xs font-bold text-indigo-600 font-mono">
+                            {log.request_type === 'chat' ? `对话#${log.conversation_id}` : log.task_no}
+                        </div>
                       <div className="text-[10px] text-gray-400 mt-0.5">{log.request_at}</div>
                     </td>
                     <td className="px-6 py-4">
@@ -192,7 +238,19 @@ const RequestLogs: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <ChevronRight size={16} className="text-gray-300 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all" />
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                                onClick={(e) => handleRetry(e, log.id)}
+                                disabled={retryingId === log.id}
+                                className="px-3 py-1.5 bg-white border border-gray-200 text-xs font-bold text-gray-600 rounded-lg hover:border-indigo-600 hover:text-indigo-600 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                title="重试"
+                            >
+                                <RotateCw size={12} className={retryingId === log.id ? 'animate-spin' : ''}/>
+                                重试
+                            </button>
+                            <ChevronRight size={16}
+                                          className="text-gray-300 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all"/>
+                        </div>
                     </td>
                   </tr>
                 );
@@ -236,9 +294,20 @@ const RequestLogs: React.FC = () => {
                 <h2 className="text-xl font-bold text-gray-900">请求详情</h2>
                 <p className="text-xs text-indigo-500 font-mono mt-1">{selectedLog.task_no}</p>
               </div>
-              <button onClick={() => setIsDrawerOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-400">
-                <X size={24} />
-              </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={(e) => handleRetry(e, selectedLog.id)}
+                        disabled={retryingId === selectedLog.id}
+                        className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                    >
+                        <RotateCw size={16} className={retryingId === selectedLog.id ? 'animate-spin' : ''}/>
+                        重试请求
+                    </button>
+                    <button onClick={() => setIsDrawerOpen(false)}
+                            className="p-2 hover:bg-gray-100 rounded-full text-gray-400">
+                        <X size={24}/>
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -328,6 +397,55 @@ const RequestLogs: React.FC = () => {
           </div>
         </div>
       )}
+
+        {/* 重试确认弹窗 */}
+        {confirmRetryId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                <div className="bg-white rounded-2xl shadow-xl w-96 p-6 space-y-4">
+                    <h3 className="text-lg font-bold text-gray-900">确认重试</h3>
+                    <p className="text-sm text-gray-500">
+                        确定要重新发送该请求吗？这将使用相同的参数向目标地址发起新的 HTTP 请求。
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button
+                            className="px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                            onClick={() => setConfirmRetryId(null)}
+                        >
+                            取消
+                        </button>
+                        <button
+                            className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                            onClick={doRetry}
+                        >
+                            确认重试
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* 错误提示弹窗 */}
+        {retryError && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                <div className="bg-white rounded-2xl shadow-xl w-96 p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                            <AlertCircle size={20} className="text-red-600"/>
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900">重试失败</h3>
+                    </div>
+                    <p className="text-sm text-gray-500">{retryError}</p>
+                    <div className="flex justify-end">
+                        <button
+                            className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                            onClick={() => setRetryError('')}
+                        >
+                            确定
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

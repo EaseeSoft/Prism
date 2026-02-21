@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/majingzhen/prism/internal/model"
@@ -16,8 +15,8 @@ const (
 
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		tokenKey := c.GetHeader("Authorization")
+		if tokenKey == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"code":    errors.ErrInvalidToken.Code,
 				"message": "missing authorization header",
@@ -25,18 +24,6 @@ func Auth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"code":    errors.ErrInvalidToken.Code,
-				"message": "invalid authorization format",
-			})
-			c.Abort()
-			return
-		}
-
-		tokenKey := parts[1]
 		var token model.Token
 		if err := model.DB().Model(&model.Token{}).Where("`key` = ? AND status = 1", tokenKey).First(&token).Error; err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
